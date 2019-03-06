@@ -17,6 +17,16 @@ import (
 type X509Pair struct {
 	KeyPemBytes  []byte
 	CertPemBytes []byte
+	CN           string
+	Serial       *big.Int
+}
+
+func NewX509Pair(keyPemBytes []byte, certPemBytes []byte, CN string, serial *big.Int) *X509Pair {
+	return &X509Pair{KeyPemBytes: keyPemBytes, CertPemBytes: certPemBytes, CN: CN, Serial: serial}
+}
+
+func NewX509PairFromFiles(keyPath, certpath string) (*X509Pair, error) {
+	return nil, nil
 }
 
 type PKI struct {
