@@ -1,4 +1,4 @@
-package pki
+package easyrsa
 
 const (
 	PEMCertificateBlock   string = "CERTIFICATE"

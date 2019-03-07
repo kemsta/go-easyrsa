@@ -1,4 +1,4 @@
-package pki
+package easyrsa
 
 import (
 	"crypto/x509/pkix"

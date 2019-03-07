@@ -1,4 +1,4 @@
-package pki
+package easyrsa
 
 import (
 	"crypto/rand"
@@ -23,10 +23,6 @@ type X509Pair struct {
 
 func NewX509Pair(keyPemBytes []byte, certPemBytes []byte, CN string, serial *big.Int) *X509Pair {
 	return &X509Pair{KeyPemBytes: keyPemBytes, CertPemBytes: certPemBytes, CN: CN, Serial: serial}
-}
-
-func NewX509PairFromFiles(keyPath, certpath string) (*X509Pair, error) {
-	return nil, nil
 }
 
 type PKI struct {

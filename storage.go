@@ -1,4 +1,4 @@
-package pki
+package easyrsa
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 )
 
 type KeyStorage interface {
@@ -16,6 +17,46 @@ type KeyStorage interface {
 	GetBySerial(serial *big.Int) (*X509Pair, error) // Get one keypair by serial.
 	DeleteByCn(cn string) error                     // Delete all keypairs by CN.
 	DeleteBySerial(serial *big.Int) error           // Delete one keypair by serial.
+}
+
+type SerialProvider interface {
+	Next() (*big.Int, error)
+}
+
+type FileSerialProvider struct {
+	sync.Mutex
+	path string
+}
+
+func (p *FileSerialProvider) Next() (*big.Int, error) {
+	p.Lock()
+	defer p.Unlock()
+	res := big.NewInt(0)
+	file, err := os.OpenFile(p.path, os.O_RDWR|os.O_CREATE, 0666)
+	if err != nil {
+		return nil, errors.Wrap(err, "can`t open serial file")
+	}
+	bytes, err := ioutil.ReadAll(file)
+	if err != nil {
+		return nil, errors.Wrap(err, "can`t read serial file")
+	}
+	if len(bytes) != 0 {
+		res.SetString(string(bytes), 16)
+	}
+	res.Add(big.NewInt(1), res)
+	_, err = file.Seek(0, 0)
+	if err != nil {
+		return nil, errors.Wrap(err, "can`t write serial file")
+	}
+	_, err = file.Write([]byte(res.Text(16)))
+	if err != nil {
+		return nil, errors.Wrap(err, "can`t write serial file")
+	}
+	return res, nil
+}
+
+func NewFileSerialProvider(path string) *FileSerialProvider {
+	return &FileSerialProvider{path: path}
 }
 
 type DirKeyStorage struct {

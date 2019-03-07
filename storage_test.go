@@ -1,4 +1,4 @@
-package pki
+package easyrsa
 
 import (
 	"bytes"
@@ -475,6 +475,48 @@ func TestDirKeyStorage_DeleteBySerial(t *testing.T) {
 			}
 			if err := s.DeleteBySerial(tt.args.serial); (err != nil) != tt.wantErr {
 				t.Errorf("DirKeyStorage.DeleteBySerial() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestFileSerialProvider_Next(t *testing.T) {
+	type fields struct {
+		path string
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		want    *big.Int
+		wantErr bool
+	}{
+		{
+			name: "not exist dir",
+			fields: fields{
+				path: filepath.Join(getTestDir(), "dir_keystorage", "not_exist/serial"),
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "not exist file",
+			fields: fields{
+				path: filepath.Join(getTestDir(), "dir_keystorage", "new_serial"),
+			},
+			want:    nil,
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewFileSerialProvider(tt.fields.path)
+			got, err := p.Next()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("FileSerialProvider.Next() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("FileSerialProvider.Next() = %v, want %v", got, tt.want)
 			}
 		})
 	}
