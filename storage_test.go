@@ -548,7 +548,7 @@ func TestFileCRLHolder_Get(t *testing.T) {
 				path: filepath.Join(getTestDir(), "dir_keystorage", "not_exist"),
 			},
 			want:    nil,
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name: "dir",

@@ -35,6 +35,10 @@ type FileCRLHolder struct {
 	path string
 }
 
+func NewFileCRLHolder(path string) *FileCRLHolder {
+	return &FileCRLHolder{path: path}
+}
+
 func (h *FileCRLHolder) Put(content []byte) error {
 	h.Lock()
 	defer h.Unlock()
@@ -49,7 +53,7 @@ func (h *FileCRLHolder) Get() (*pkix.CertificateList, error) {
 	h.RLock()
 	defer h.RUnlock()
 	if _, err := os.Stat(h.path); err != nil {
-		return nil, errors.Wrap(err, "crl not exist")
+		return &pkix.CertificateList{}, nil
 	}
 	bytes, err := ioutil.ReadFile(h.path)
 	if err != nil {

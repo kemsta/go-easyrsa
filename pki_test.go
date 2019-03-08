@@ -60,7 +60,7 @@ func TestPKI_newCert(t *testing.T) {
 	defer cleanup()
 	ca, _ := pki.NewCa(true)
 	t.Run("create server cert and write", func(t *testing.T) {
-		got, err := pki.newCert(ca, true, "server", true)
+		got, err := pki.NewCert(ca, true, "server", true)
 		assert.NoError(t, err)
 		assert.NotNil(t, got)
 		assert.NotEmpty(t, got.CertPemBytes)
@@ -96,7 +96,8 @@ func getTmpPki() (*PKI, func()) {
 	_ = os.MkdirAll(storDir, 0777)
 	storage := NewDirKeyStorage(storDir)
 	serialProvider := NewFileSerialProvider(filepath.Join(storDir, "serial"))
-	pki := NewPKI(storage, serialProvider, pkix.Name{})
+	crlHolder := NewFileCRLHolder(filepath.Join(storDir, "crl.pem"))
+	pki := NewPKI(storage, serialProvider, crlHolder, pkix.Name{})
 	if err != nil {
 		log.Fatalln("can`t create pki")
 	}
@@ -104,4 +105,14 @@ func getTmpPki() (*PKI, func()) {
 	return pki, func() {
 		_ = os.RemoveAll(storDir)
 	}
+}
+
+func TestPKI_getCRL(t *testing.T) {
+	pki, cleanup := getTmpPki()
+	defer cleanup()
+	t.Run("get crl", func(t *testing.T) {
+		list, err := pki.GetCRL()
+		assert.NoError(t, err)
+		assert.NotNil(t, list)
+	})
 }

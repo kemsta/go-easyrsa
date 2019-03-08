@@ -53,8 +53,8 @@ type PKI struct {
 	subjTemplate   pkix.Name
 }
 
-func NewPKI(storage KeyStorage, sp SerialProvider, subjTemplate pkix.Name) *PKI {
-	return &PKI{Storage: storage, serialProvider: sp, subjTemplate: subjTemplate}
+func NewPKI(storage KeyStorage, sp SerialProvider, crlHolder CRLHolder, subjTemplate pkix.Name) *PKI {
+	return &PKI{Storage: storage, serialProvider: sp, crlHolder: crlHolder, subjTemplate: subjTemplate}
 }
 
 func (p *PKI) NewCa(save bool) (*X509Pair, error) {
@@ -118,7 +118,7 @@ func (p *PKI) NewCa(save bool) (*X509Pair, error) {
 	return res, nil
 }
 
-func (p *PKI) newCert(ca *X509Pair, server bool, cn string, save bool) (*X509Pair, error) {
+func (p *PKI) NewCert(ca *X509Pair, server bool, cn string, save bool) (*X509Pair, error) {
 	caKey, caCert, err := ca.Decode()
 	if err != nil {
 		return nil, errors.Wrap(err, "can`t parse ca pair: %v")
@@ -194,4 +194,8 @@ func (p *PKI) newCert(ca *X509Pair, server bool, cn string, save bool) (*X509Pai
 	}
 
 	return res, nil
+}
+
+func (p *PKI) GetCRL() (*pkix.CertificateList, error) {
+	return p.crlHolder.Get()
 }
