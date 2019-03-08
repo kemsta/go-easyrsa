@@ -3,6 +3,7 @@ package easyrsa
 import (
 	"bytes"
 	"crypto/x509/pkix"
+	"github.com/stretchr/testify/assert"
 	"io/ioutil"
 	"math/big"
 	"os"
@@ -588,4 +589,27 @@ func TestFileCRLHolder_Get(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDirKeyStorage_GetAll(t *testing.T) {
+	storPath := filepath.Join(getTestDir(), "empty_stor")
+	stor := NewDirKeyStorage(storPath)
+	_ = os.MkdirAll(storPath, 0755)
+	defer os.RemoveAll(storPath)
+	t.Run("empty stor", func(t *testing.T) {
+		all, err := stor.GetAll()
+		assert.NoError(t, err)
+		assert.NotNil(t, all)
+		assert.Empty(t, all)
+	})
+	t.Run("good stor", func(t *testing.T) {
+		_ = stor.Put(NewX509Pair([]byte("keybytes"), []byte("certbytes"), "good_cert", big.NewInt(66)))
+		_ = stor.Put(NewX509Pair([]byte("keybytes"), []byte("certbytes"), "good_cert", big.NewInt(65)))
+		_ = stor.Put(NewX509Pair([]byte("keybytes"), []byte("certbytes"), "another_cert", big.NewInt(64)))
+		all, err := stor.GetAll()
+		assert.NoError(t, err)
+		assert.NotNil(t, all)
+		assert.NotEmpty(t, all)
+		assert.Len(t, all, 3)
+	})
 }
