@@ -1,6 +1,8 @@
 package easyrsa
 
 import (
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"fmt"
 	"github.com/pkg/errors"
 	"io/ioutil"
@@ -23,6 +25,43 @@ type SerialProvider interface {
 	Next() (*big.Int, error)
 }
 
+type CRLHolder interface {
+	Put([]byte) error
+	Get() (*pkix.CertificateList, error)
+}
+
+type FileCRLHolder struct {
+	sync.RWMutex
+	path string
+}
+
+func (h *FileCRLHolder) Put(content []byte) error {
+	h.Lock()
+	defer h.Unlock()
+	err := ioutil.WriteFile(h.path, content, 0666)
+	if err != nil {
+		return errors.Wrap(err, "can`t put new crl file")
+	}
+	return nil
+}
+
+func (h *FileCRLHolder) Get() (*pkix.CertificateList, error) {
+	h.RLock()
+	defer h.RUnlock()
+	if _, err := os.Stat(h.path); err != nil {
+		return nil, errors.Wrap(err, "crl not exist")
+	}
+	bytes, err := ioutil.ReadFile(h.path)
+	if err != nil {
+		return nil, errors.Wrap(err, "can`t read crl")
+	}
+	list, err := x509.ParseCRL(bytes)
+	if err != nil {
+		return nil, errors.Wrap(err, "can`t parse crl")
+	}
+	return list, nil
+}
+
 type FileSerialProvider struct {
 	sync.Mutex
 	path string
@@ -36,6 +75,7 @@ func (p *FileSerialProvider) Next() (*big.Int, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "can`t open serial file")
 	}
+	defer file.Close()
 	bytes, err := ioutil.ReadAll(file)
 	if err != nil {
 		return nil, errors.Wrap(err, "can`t read serial file")
@@ -44,6 +84,7 @@ func (p *FileSerialProvider) Next() (*big.Int, error) {
 		res.SetString(string(bytes), 16)
 	}
 	res.Add(big.NewInt(1), res)
+	_ = file.Truncate(0)
 	_, err = file.Seek(0, 0)
 	if err != nil {
 		return nil, errors.Wrap(err, "can`t write serial file")
@@ -104,11 +145,11 @@ func (s *DirKeyStorage) DeleteBySerial(serial *big.Int) error {
 	}
 	certPath := filepath.Join(s.keydir, pair.CN, fmt.Sprintf("%s.crt", pair.Serial.Text(16)))
 	keyPath := filepath.Join(s.keydir, pair.CN, fmt.Sprintf("%s.key", pair.Serial.Text(16)))
-	err = os.RemoveAll(certPath)
+	err = os.Remove(certPath)
 	if err != nil {
 		return errors.Wrap(err, "can`t delete cert")
 	}
-	err = os.RemoveAll(keyPath)
+	err = os.Remove(keyPath)
 	if err != nil {
 		return errors.Wrap(err, "can`t delete key")
 	}

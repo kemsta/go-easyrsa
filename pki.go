@@ -5,12 +5,11 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/pem"
-	"fmt"
+	"github.com/pkg/errors"
 	"golang.org/x/xerrors"
-	"io/ioutil"
 	"math/big"
-	"path/filepath"
 	"time"
 )
 
@@ -21,20 +20,41 @@ type X509Pair struct {
 	Serial       *big.Int
 }
 
+func (pair *X509Pair) Decode() (key *rsa.PrivateKey, cert *x509.Certificate, err error) {
+	block, _ := pem.Decode([]byte(pair.KeyPemBytes))
+	if block == nil {
+		return nil, nil, errors.New("can`t parse key")
+	}
+
+	key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "can`t parse key")
+	}
+
+	block, _ = pem.Decode([]byte(pair.CertPemBytes))
+	if block == nil {
+		return nil, nil, errors.New("can`t parse cert")
+	}
+	cert, err = x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "can`t parse cert")
+	}
+	return
+}
+
 func NewX509Pair(keyPemBytes []byte, certPemBytes []byte, CN string, serial *big.Int) *X509Pair {
 	return &X509Pair{KeyPemBytes: keyPemBytes, CertPemBytes: certPemBytes, CN: CN, Serial: serial}
 }
 
 type PKI struct {
-	KeyDir       string
-	SubjTemplate pkix.Name
+	storage        KeyStorage
+	serialProvider SerialProvider
+	crlHolder      CRLHolder
+	subjTemplate   pkix.Name
 }
 
-func NewPki(keyDir string, subjTemplate pkix.Name) (*PKI, error) {
-	if keyDir == "" {
-		return nil, xerrors.New("empty keydir")
-	}
-	return &PKI{KeyDir: keyDir, SubjTemplate: subjTemplate}, nil
+func NewPKI(storage KeyStorage, sp SerialProvider, subjTemplate pkix.Name) *PKI {
+	return &PKI{storage: storage, serialProvider: sp, subjTemplate: subjTemplate}
 }
 
 func (p *PKI) NewCa(save bool) (*X509Pair, error) {
@@ -43,10 +63,10 @@ func (p *PKI) NewCa(save bool) (*X509Pair, error) {
 		return nil, xerrors.New("can`t generate key")
 	}
 
-	subj := p.SubjTemplate
+	subj := p.subjTemplate
 	subj.CommonName = "ca"
 
-	serial, err := rand.Int(rand.Reader, (&big.Int{}).Exp(big.NewInt(2), big.NewInt(159), nil))
+	serial, err := p.serialProvider.Next()
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +99,7 @@ func (p *PKI) NewCa(save bool) (*X509Pair, error) {
 		}),
 	}
 	if save {
-		err := p.savePair("ca", res)
+		err := p.storage.Put(res)
 		if err != nil {
 			return nil, err
 		}
@@ -87,28 +107,72 @@ func (p *PKI) NewCa(save bool) (*X509Pair, error) {
 	return res, nil
 }
 
-func (p *PKI) savePair(cn string, pair *X509Pair) error {
-	err := ioutil.WriteFile(filepath.Join(p.KeyDir, fmt.Sprintf("%s.key", cn)), pair.KeyPemBytes, 0600)
+func (p *PKI) newCert(ca *X509Pair, server bool, cn string) (*X509Pair, error) {
+	caKey, caCert, err := ca.Decode()
 	if err != nil {
-		return xerrors.New("can`t write key")
+		return nil, errors.Wrap(err, "can`t parse ca pair: %v")
 	}
-	err = ioutil.WriteFile(filepath.Join(p.KeyDir, fmt.Sprintf("%s.crt", cn)), pair.CertPemBytes, 0600)
-	if err != nil {
-		return xerrors.New("can`t write crt")
-	}
-	return nil
-}
 
-func (p *PKI) readPair(cn string) (*X509Pair, error) {
-	var err error
-	pair := &X509Pair{}
-	pair.KeyPemBytes, err = ioutil.ReadFile(filepath.Join(p.KeyDir, fmt.Sprintf("%s.key", cn)))
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return nil, xerrors.New("can`t read key")
+		return nil, errors.Wrap(err, "can`t create private key")
 	}
-	pair.CertPemBytes, err = ioutil.ReadFile(filepath.Join(p.KeyDir, fmt.Sprintf("%s.crt", cn)))
+
+	serial, err := p.serialProvider.Next()
 	if err != nil {
-		return nil, xerrors.New("can`t read key")
+		return nil, err
 	}
-	return pair, nil
+
+	val, err := asn1.Marshal(asn1.BitString{Bytes: []byte{0x80}, BitLength: 2}) // setting nsCertType to Client Type
+	if err != nil {
+		return nil, errors.Wrap(err, "can not marshal nsCertType")
+	}
+
+	now := time.Now()
+	subj := p.subjTemplate
+	subj.CommonName = cn
+	tml := x509.Certificate{
+		NotBefore:             now.Add(-10 * time.Minute).UTC(),
+		NotAfter:              now.Add(time.Duration(24*365*99) * time.Hour).UTC(),
+		SerialNumber:          serial,
+		Subject:               subj,
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyAgreement,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+		ExtraExtensions: []pkix.Extension{
+			{
+				Id:    asn1.ObjectIdentifier{2, 16, 840, 1, 113730, 1, 1},
+				Value: val,
+			},
+		},
+	}
+
+	if server {
+		tml.KeyUsage = x509.KeyUsageDigitalSignature | x509.KeyUsageKeyAgreement | x509.KeyUsageKeyEncipherment
+		tml.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
+		val, err := asn1.Marshal(asn1.BitString{Bytes: []byte{0x40}, BitLength: 2}) // setting nsCertType to Server Type
+		if err != nil {
+			return nil, errors.Wrap(err, "can not marshal nsCertType")
+		}
+		tml.ExtraExtensions[0].Id = asn1.ObjectIdentifier{2, 16, 840, 1, 113730, 1, 1}
+		tml.ExtraExtensions[0].Value = val
+	}
+
+	// Sign with CA's private key
+	cert, err := x509.CreateCertificate(rand.Reader, &tml, caCert, &key.PublicKey, caKey)
+	if err != nil {
+		return nil, errors.Wrap(err, "certificate cannot be created")
+	}
+
+	priKeyPem := pem.EncodeToMemory(&pem.Block{
+		Type:  PEMRSAPrivateKeyBlock,
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	})
+
+	certPem := pem.EncodeToMemory(&pem.Block{
+		Type:  PEMCertificateBlock,
+		Bytes: cert,
+	})
+
+	return NewX509Pair(priKeyPem, certPem, cn, serial), nil
 }

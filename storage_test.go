@@ -2,11 +2,13 @@ package easyrsa
 
 import (
 	"bytes"
+	"crypto/x509/pkix"
 	"io/ioutil"
 	"math/big"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 )
 
@@ -317,24 +319,6 @@ func TestDirKeyStorage_DeleteByCn(t *testing.T) {
 	}
 }
 
-//
-//func TestDirKeyStorage_GetByCN(t *testing.T) {
-//	want := []*X509Pair{NewX509Pair([]byte("keybytes"), []byte("certbytes"), "good_cert", big.NewInt(66))}
-//	t.Run("good storage", func(t *testing.T) {
-//		s := &DirKeyStorage{
-//			keydir: filepath.Join(getTestDir(), "dir_keystorage"),
-//		}
-//		got, err := s.GetByCN("good_cert")
-//		if err != nil {
-//			t.Errorf("DirKeyStorage.GetByCN() error = %v", err)
-//			return
-//		}
-//		if !reflect.DeepEqual(got, want) {
-//			t.Errorf("DirKeyStorage.GetByCN() got = %v but want = %v", got, want)
-//		}
-//	})
-//}
-
 func TestDirKeyStorage_GetByCN(t *testing.T) {
 	type fields struct {
 		keydir string
@@ -444,6 +428,11 @@ func TestDirKeyStorage_GetBySerial(t *testing.T) {
 }
 
 func TestDirKeyStorage_DeleteBySerial(t *testing.T) {
+
+	_ = os.MkdirAll(filepath.Join(getTestDir(), "dir_keystorage", "for_delete"), 0755)
+	ioutil.WriteFile(filepath.Join(getTestDir(), "dir_keystorage", "for_delete", "a.crt"), []byte(""), 0600)
+	ioutil.WriteFile(filepath.Join(getTestDir(), "dir_keystorage", "for_delete", "a.key"), []byte(""), 0600)
+
 	type fields struct {
 		keydir string
 	}
@@ -466,6 +455,16 @@ func TestDirKeyStorage_DeleteBySerial(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "exist",
+			fields: fields{
+				keydir: filepath.Join(getTestDir(), "dir_keystorage"),
+			},
+			args: args{
+				serial: big.NewInt(10),
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -481,6 +480,10 @@ func TestDirKeyStorage_DeleteBySerial(t *testing.T) {
 }
 
 func TestFileSerialProvider_Next(t *testing.T) {
+	defer func() {
+		os.RemoveAll(filepath.Join(getTestDir(), "dir_keystorage", "new_serial"))
+		ioutil.WriteFile(filepath.Join(getTestDir(), "dir_keystorage", "wrong_serial"), []byte("gggg"), 0666)
+	}()
 	type fields struct {
 		path string
 	}
@@ -503,6 +506,22 @@ func TestFileSerialProvider_Next(t *testing.T) {
 			fields: fields{
 				path: filepath.Join(getTestDir(), "dir_keystorage", "new_serial"),
 			},
+			want:    big.NewInt(1),
+			wantErr: false,
+		},
+		{
+			name: "broken file",
+			fields: fields{
+				path: filepath.Join(getTestDir(), "dir_keystorage", "wrong_serial"),
+			},
+			want:    big.NewInt(1),
+			wantErr: false,
+		},
+		{
+			name: "dir",
+			fields: fields{
+				path: filepath.Join(getTestDir(), "dir_keystorage"),
+			},
 			want:    nil,
 			wantErr: true,
 		},
@@ -517,6 +536,112 @@ func TestFileSerialProvider_Next(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("FileSerialProvider.Next() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFileCRLHolder_Put(t *testing.T) {
+	t.Run("not exist", func(t *testing.T) {
+		fileName := filepath.Join(getTestDir(), "dir_keystorage", "not_exist_crl.pem")
+		content := []byte("content")
+		defer os.RemoveAll(fileName)
+		h := &FileCRLHolder{
+			path: fileName,
+		}
+		err := h.Put(content)
+		if err != nil {
+			t.Errorf("FileCRLHolder.Put() error = %v", err)
+		}
+		got, _ := ioutil.ReadFile(fileName)
+		if !bytes.Equal(got, content) {
+			t.Errorf("FileCRLHolder.Put() got = %v, want %v", got, content)
+		}
+	})
+	t.Run("not exist", func(t *testing.T) {
+		fileName := filepath.Join(getTestDir(), "dir_keystorage", "exist.pem")
+		content := []byte("content")
+		defer ioutil.WriteFile(fileName, []byte("asd"), 0666)
+		h := &FileCRLHolder{
+			path: fileName,
+		}
+		err := h.Put(content)
+		if err != nil {
+			t.Errorf("FileCRLHolder.Put() error = %v", err)
+		}
+		got, _ := ioutil.ReadFile(fileName)
+		if !bytes.Equal(got, content) {
+			t.Errorf("FileCRLHolder.Put() got = %v, want %v", got, content)
+		}
+	})
+	t.Run("dir", func(t *testing.T) {
+		fileName := filepath.Join(getTestDir(), "dir_keystorage", "crl.dir")
+		content := []byte("content")
+		defer ioutil.WriteFile(fileName, []byte("asd"), 0666)
+		h := &FileCRLHolder{
+			path: fileName,
+		}
+		err := h.Put(content)
+		if err == nil {
+			t.Errorf("FileCRLHolder.Put() error = %v", err)
+		}
+	})
+}
+
+func TestFileCRLHolder_Get(t *testing.T) {
+	type fields struct {
+		RWMutex sync.RWMutex
+		path    string
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		want    *pkix.CertificateList
+		wantErr bool
+	}{
+		{
+			name: "not exist",
+			fields: fields{
+				path: filepath.Join(getTestDir(), "dir_keystorage", "not_exist"),
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "dir",
+			fields: fields{
+				path: filepath.Join(getTestDir(), "dir_keystorage", "crl.dir"),
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "broken",
+			fields: fields{
+				path: filepath.Join(getTestDir(), "dir_keystorage", "exist.pem"),
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "good",
+			fields: fields{
+				path: filepath.Join(getTestDir(), "dir_keystorage", "good_crl.pem"),
+			},
+			want:    nil,
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &FileCRLHolder{
+				RWMutex: tt.fields.RWMutex,
+				path:    tt.fields.path,
+			}
+			_, err := h.Get()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("FileCRLHolder.Get() error = %v, wantErr %v", err, tt.wantErr)
+				return
 			}
 		})
 	}
