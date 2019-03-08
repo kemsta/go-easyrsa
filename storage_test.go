@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sync"
 	"testing"
 )
 
@@ -534,8 +533,7 @@ func TestFileCRLHolder_Put(t *testing.T) {
 
 func TestFileCRLHolder_Get(t *testing.T) {
 	type fields struct {
-		RWMutex sync.RWMutex
-		path    string
+		path string
 	}
 	tests := []struct {
 		name    string
@@ -579,8 +577,7 @@ func TestFileCRLHolder_Get(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := &FileCRLHolder{
-				RWMutex: tt.fields.RWMutex,
-				path:    tt.fields.path,
+				path: tt.fields.path,
 			}
 			_, err := h.Get()
 			if (err != nil) != tt.wantErr {
