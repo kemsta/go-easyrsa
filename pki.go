@@ -10,6 +10,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/xerrors"
 	"math/big"
+	"sort"
 	"time"
 )
 
@@ -57,7 +58,7 @@ func NewPKI(storage KeyStorage, sp SerialProvider, crlHolder CRLHolder, subjTemp
 	return &PKI{Storage: storage, serialProvider: sp, crlHolder: crlHolder, subjTemplate: subjTemplate}
 }
 
-func (p *PKI) NewCa(save bool) (*X509Pair, error) {
+func (p *PKI) NewCa() (*X509Pair, error) {
 	key, err := rsa.GenerateKey(rand.Reader, DefaultKeySizeBytes)
 	if err != nil {
 		return nil, xerrors.New("can`t generate key")
@@ -109,19 +110,21 @@ func (p *PKI) NewCa(save bool) (*X509Pair, error) {
 		}),
 		"ca",
 		serial)
-	if save {
-		err := p.Storage.Put(res)
-		if err != nil {
-			return nil, err
-		}
+	err = p.Storage.Put(res)
+	if err != nil {
+		return nil, err
 	}
 	return res, nil
 }
 
-func (p *PKI) NewCert(ca *X509Pair, server bool, cn string, save bool) (*X509Pair, error) {
-	caKey, caCert, err := ca.Decode()
+func (p *PKI) NewCert(cn string, server bool) (*X509Pair, error) {
+	caPair, err := p.GetLastCA()
 	if err != nil {
-		return nil, errors.Wrap(err, "can`t parse ca pair: %v")
+		return nil, errors.Wrap(err, "can`t get ca pair")
+	}
+	caKey, caCert, err := caPair.Decode()
+	if err != nil {
+		return nil, errors.Wrap(err, "can`t parse ca pair")
 	}
 
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -186,16 +189,90 @@ func (p *PKI) NewCert(ca *X509Pair, server bool, cn string, save bool) (*X509Pai
 	})
 
 	res := NewX509Pair(priKeyPem, certPem, cn, serial)
-	if save {
-		err := p.Storage.Put(res)
-		if err != nil {
-			return nil, err
-		}
-	}
 
+	err = p.Storage.Put(res)
+	if err != nil {
+		return nil, err
+	}
 	return res, nil
 }
 
 func (p *PKI) GetCRL() (*pkix.CertificateList, error) {
 	return p.crlHolder.Get()
+}
+
+func (p *PKI) GetLastCA() (*X509Pair, error) {
+	return p.GetLastCert("ca")
+}
+
+func (p *PKI) GetLastCert(cn string) (*X509Pair, error) {
+	pairs, err := p.Storage.GetByCN(cn)
+	if err != nil {
+		return nil, errors.Wrap(err, "can`t get cert")
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		return pairs[i].Serial.Cmp(pairs[j].Serial) == 1
+	})
+	return pairs[0], nil
+}
+
+func (p *PKI) RevokeOne(serial *big.Int) error {
+	list := make([]pkix.RevokedCertificate, 0)
+	if oldList, err := p.GetCRL(); err == nil {
+		list = oldList.TBSCertList.RevokedCertificates
+	}
+	caPairs, err := p.Storage.GetByCN("ca")
+	if err != nil {
+		return errors.Wrap(err, "can`t get ca certs for signing crl")
+	}
+	sort.Slice(caPairs, func(i, j int) bool {
+		return caPairs[i].Serial.Cmp(caPairs[j].Serial) == 1
+	})
+	caKey, caCert, err := caPairs[0].Decode()
+	if err != nil {
+		return errors.Wrap(err, "can`t decode ca certs for signing crl")
+	}
+	list = append(list, pkix.RevokedCertificate{
+		SerialNumber:   serial,
+		RevocationTime: time.Now(),
+	})
+	crlBytes, err := caCert.CreateCRL(rand.Reader, caKey, removeDups(list), time.Now(), time.Now().Add(99*365*24*time.Hour))
+	if err != nil {
+		return errors.Wrap(err, "can`t create crl")
+	}
+	crlPem := pem.EncodeToMemory(&pem.Block{
+		Type:  PEMx509CRLBlock,
+		Bytes: crlBytes,
+	})
+	err = p.crlHolder.Put(crlPem)
+	if err != nil {
+		return errors.Wrap(err, "can`t put new crl")
+	}
+	return nil
+}
+
+func (p *PKI) RevokeAllByCN(cn string) error {
+	pairs, err := p.Storage.GetByCN(cn)
+	if err != nil {
+		return errors.Wrap(err, "can`t get pairs for revoke")
+	}
+	for _, pair := range pairs {
+		err := p.RevokeOne(pair.Serial)
+		if err != nil {
+			return errors.Wrap(err, "can`t revoke")
+		}
+	}
+	return nil
+}
+
+func removeDups(list []pkix.RevokedCertificate) []pkix.RevokedCertificate {
+	encountered := map[int64]bool{}
+	result := make([]pkix.RevokedCertificate, 0)
+	for _, cert := range list {
+		if !encountered[cert.SerialNumber.Int64()] {
+			result = append(result, cert)
+			encountered[cert.SerialNumber.Int64()] = true
+		}
+	}
+	return result
 }
