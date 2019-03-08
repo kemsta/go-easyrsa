@@ -558,7 +558,7 @@ func TestFileCRLHolder_Put(t *testing.T) {
 			t.Errorf("FileCRLHolder.Put() got = %v, want %v", got, content)
 		}
 	})
-	t.Run("not exist", func(t *testing.T) {
+	t.Run("exist", func(t *testing.T) {
 		fileName := filepath.Join(getTestDir(), "dir_keystorage", "exist.pem")
 		content := []byte("content")
 		defer ioutil.WriteFile(fileName, []byte("asd"), 0666)
