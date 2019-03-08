@@ -14,7 +14,7 @@ import (
 )
 
 type KeyStorage interface {
-	Put(pair *X509Pair) error                       // Put new pair to storage. Overwrite if already exist.
+	Put(pair *X509Pair) error                       // Put new pair to Storage. Overwrite if already exist.
 	GetByCN(cn string) ([]*X509Pair, error)         // Get all keypairs by CN.
 	GetBySerial(serial *big.Int) (*X509Pair, error) // Get one keypair by serial.
 	DeleteByCn(cn string) error                     // Delete all keypairs by CN.
@@ -104,14 +104,8 @@ type DirKeyStorage struct {
 	keydir string
 }
 
-func NewDirKeyStorage(keydir string) (*DirKeyStorage, error) {
-	if keydir == "" {
-		return nil, errors.New("empty keydir")
-	}
-	if _, err := os.Stat(keydir); err != nil || !filepath.IsAbs(keydir) {
-		return nil, errors.New("keydir is not exist or not abs")
-	}
-	return &DirKeyStorage{keydir: keydir}, nil
+func NewDirKeyStorage(keydir string) *DirKeyStorage {
+	return &DirKeyStorage{keydir: keydir}
 }
 
 func (s *DirKeyStorage) Put(pair *X509Pair) error {

@@ -47,14 +47,14 @@ func NewX509Pair(keyPemBytes []byte, certPemBytes []byte, CN string, serial *big
 }
 
 type PKI struct {
-	storage        KeyStorage
+	Storage        KeyStorage
 	serialProvider SerialProvider
 	crlHolder      CRLHolder
 	subjTemplate   pkix.Name
 }
 
 func NewPKI(storage KeyStorage, sp SerialProvider, subjTemplate pkix.Name) *PKI {
-	return &PKI{storage: storage, serialProvider: sp, subjTemplate: subjTemplate}
+	return &PKI{Storage: storage, serialProvider: sp, subjTemplate: subjTemplate}
 }
 
 func (p *PKI) NewCa(save bool) (*X509Pair, error) {
@@ -98,8 +98,19 @@ func (p *PKI) NewCa(save bool) (*X509Pair, error) {
 			Bytes: certificate,
 		}),
 	}
+	res = NewX509Pair(
+		pem.EncodeToMemory(&pem.Block{
+			Type:  PEMRSAPrivateKeyBlock,
+			Bytes: x509.MarshalPKCS1PrivateKey(key),
+		}),
+		pem.EncodeToMemory(&pem.Block{
+			Type:  PEMCertificateBlock,
+			Bytes: certificate,
+		}),
+		"ca",
+		serial)
 	if save {
-		err := p.storage.Put(res)
+		err := p.Storage.Put(res)
 		if err != nil {
 			return nil, err
 		}
@@ -107,7 +118,7 @@ func (p *PKI) NewCa(save bool) (*X509Pair, error) {
 	return res, nil
 }
 
-func (p *PKI) newCert(ca *X509Pair, server bool, cn string) (*X509Pair, error) {
+func (p *PKI) newCert(ca *X509Pair, server bool, cn string, save bool) (*X509Pair, error) {
 	caKey, caCert, err := ca.Decode()
 	if err != nil {
 		return nil, errors.Wrap(err, "can`t parse ca pair: %v")
@@ -174,5 +185,13 @@ func (p *PKI) newCert(ca *X509Pair, server bool, cn string) (*X509Pair, error) {
 		Bytes: cert,
 	})
 
-	return NewX509Pair(priKeyPem, certPem, cn, serial), nil
+	res := NewX509Pair(priKeyPem, certPem, cn, serial)
+	if save {
+		err := p.Storage.Put(res)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return res, nil
 }

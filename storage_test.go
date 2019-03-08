@@ -17,63 +17,6 @@ func getTestDir() string {
 	return res
 }
 
-func TestNewDirKeyStorage(t *testing.T) {
-	type args struct {
-		keydir string
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    *DirKeyStorage
-		wantErr bool
-	}{
-		{
-			name: "empty",
-			args: args{
-				keydir: "",
-			},
-			want:    nil,
-			wantErr: true,
-		},
-		{
-			name: "not exist",
-			args: args{
-				keydir: "not exist/dir",
-			},
-			want:    nil,
-			wantErr: true,
-		},
-		{
-			name: "good",
-			args: args{
-				keydir: filepath.Join(getTestDir(), "dir_keystorage"),
-			},
-			want:    &DirKeyStorage{keydir: filepath.Join(getTestDir(), "dir_keystorage")},
-			wantErr: false,
-		},
-		{
-			name: "not abs",
-			args: args{
-				keydir: filepath.Join("test_data", "dir_keystorage"),
-			},
-			want:    nil,
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewDirKeyStorage(tt.args.keydir)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NewDirKeyStorage() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewDirKeyStorage() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestDirKeyStorage_makePath(t *testing.T) {
 	type fields struct {
 		keydir string
