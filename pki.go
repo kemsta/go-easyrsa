@@ -89,17 +89,8 @@ func (p *PKI) NewCa() (*X509Pair, error) {
 	if err != nil {
 		return nil, xerrors.New("can`t generate cert")
 	}
-	res := &X509Pair{
-		KeyPemBytes: pem.EncodeToMemory(&pem.Block{
-			Type:  PEMRSAPrivateKeyBlock,
-			Bytes: x509.MarshalPKCS1PrivateKey(key),
-		}),
-		CertPemBytes: pem.EncodeToMemory(&pem.Block{
-			Type:  PEMCertificateBlock,
-			Bytes: certificate,
-		}),
-	}
-	res = NewX509Pair(
+
+	res := NewX509Pair(
 		pem.EncodeToMemory(&pem.Block{
 			Type:  PEMRSAPrivateKeyBlock,
 			Bytes: x509.MarshalPKCS1PrivateKey(key),
