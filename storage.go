@@ -4,13 +4,14 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"fmt"
-	"github.com/pkg/errors"
 	"io/ioutil"
 	"math/big"
 	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
+
+	"github.com/pkg/errors"
 )
 
 type KeyStorage interface {
@@ -160,7 +161,7 @@ func (s *DirKeyStorage) GetByCN(cn string) ([]*X509Pair, error) {
 		if err != nil {
 			return err
 		}
-		if filepath.Ext(path) == ".crt" {
+		if filepath.Ext(path) == CertFileExtension {
 			fileName := filepath.Base(path)
 			serial, err := strconv.ParseInt(fileName[0:len(fileName)-len(filepath.Ext(fileName))], 16, 64)
 			if err != nil {
@@ -187,7 +188,7 @@ func (s *DirKeyStorage) GetBySerial(serial *big.Int) (*X509Pair, error) {
 		if err != nil {
 			return nil
 		}
-		if filepath.Ext(path) == ".crt" {
+		if filepath.Ext(path) == CertFileExtension {
 			fileName := filepath.Base(path)
 			ser, err := strconv.ParseInt(fileName[0:len(fileName)-len(filepath.Ext(fileName))], 16, 64)
 			if err != nil {
@@ -221,7 +222,7 @@ func (s *DirKeyStorage) GetAll() ([]*X509Pair, error) {
 		if err != nil {
 			return nil
 		}
-		if filepath.Ext(path) == ".crt" {
+		if filepath.Ext(path) == CertFileExtension {
 			fileName := filepath.Base(path)
 			ser, err := strconv.ParseInt(fileName[0:len(fileName)-len(filepath.Ext(fileName))], 16, 64)
 			if err != nil {

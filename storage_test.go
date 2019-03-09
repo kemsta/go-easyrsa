@@ -3,13 +3,14 @@ package easyrsa
 import (
 	"bytes"
 	"crypto/x509/pkix"
-	"github.com/stretchr/testify/assert"
 	"io/ioutil"
 	"math/big"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func getTestDir() string {
@@ -373,8 +374,8 @@ func TestDirKeyStorage_GetBySerial(t *testing.T) {
 func TestDirKeyStorage_DeleteBySerial(t *testing.T) {
 
 	_ = os.MkdirAll(filepath.Join(getTestDir(), "dir_keystorage", "for_delete"), 0755)
-	ioutil.WriteFile(filepath.Join(getTestDir(), "dir_keystorage", "for_delete", "a.crt"), []byte(""), 0600)
-	ioutil.WriteFile(filepath.Join(getTestDir(), "dir_keystorage", "for_delete", "a.key"), []byte(""), 0600)
+	_ = ioutil.WriteFile(filepath.Join(getTestDir(), "dir_keystorage", "for_delete", "a.crt"), []byte(""), 0600)
+	_ = ioutil.WriteFile(filepath.Join(getTestDir(), "dir_keystorage", "for_delete", "a.key"), []byte(""), 0600)
 
 	type fields struct {
 		keydir string
@@ -425,7 +426,7 @@ func TestDirKeyStorage_DeleteBySerial(t *testing.T) {
 func TestFileSerialProvider_Next(t *testing.T) {
 	defer func() {
 		os.RemoveAll(filepath.Join(getTestDir(), "dir_keystorage", "new_serial"))
-		ioutil.WriteFile(filepath.Join(getTestDir(), "dir_keystorage", "wrong_serial"), []byte("gggg"), 0666)
+		_ = ioutil.WriteFile(filepath.Join(getTestDir(), "dir_keystorage", "wrong_serial"), []byte("gggg"), 0666)
 	}()
 	type fields struct {
 		path string
@@ -504,7 +505,9 @@ func TestFileCRLHolder_Put(t *testing.T) {
 	t.Run("exist", func(t *testing.T) {
 		fileName := filepath.Join(getTestDir(), "dir_keystorage", "exist.pem")
 		content := []byte("content")
-		defer ioutil.WriteFile(fileName, []byte("asd"), 0666)
+		defer func() {
+			_ = ioutil.WriteFile(fileName, []byte("asd"), 0666)
+		}()
 		h := &FileCRLHolder{
 			path: fileName,
 		}
@@ -520,7 +523,9 @@ func TestFileCRLHolder_Put(t *testing.T) {
 	t.Run("dir", func(t *testing.T) {
 		fileName := filepath.Join(getTestDir(), "dir_keystorage", "crl.dir")
 		content := []byte("content")
-		defer ioutil.WriteFile(fileName, []byte("asd"), 0666)
+		defer func() {
+			_ = ioutil.WriteFile(fileName, []byte("asd"), 0666)
+		}()
 		h := &FileCRLHolder{
 			path: fileName,
 		}

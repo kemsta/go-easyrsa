@@ -37,7 +37,7 @@ func TestPki_NewCa(t *testing.T) {
 		assert.NotEmpty(t, got.KeyPemBytes)
 	})
 	t.Run("decode ca", func(t *testing.T) {
-		ca, err := pki.Storage.GetByCN("ca")
+		ca, _ := pki.Storage.GetByCN("ca")
 		key, cert, err := ca[0].Decode()
 		assert.NoError(t, err)
 		assert.NotNil(t, key)
@@ -73,7 +73,7 @@ func TestPKI_newCert(t *testing.T) {
 		assert.NotEmpty(t, got.KeyPemBytes)
 	})
 	t.Run("decode cert", func(t *testing.T) {
-		ca, err := pki.Storage.GetByCN("server")
+		ca, _ := pki.Storage.GetByCN("server")
 		key, cert, err := ca[0].Decode()
 		assert.NoError(t, err)
 		assert.NotNil(t, key)

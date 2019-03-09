@@ -7,11 +7,11 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/pem"
-	"github.com/pkg/errors"
-	"golang.org/x/xerrors"
 	"math/big"
 	"sort"
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 type X509Pair struct {
@@ -22,7 +22,7 @@ type X509Pair struct {
 }
 
 func (pair *X509Pair) Decode() (key *rsa.PrivateKey, cert *x509.Certificate, err error) {
-	block, _ := pem.Decode([]byte(pair.KeyPemBytes))
+	block, _ := pem.Decode(pair.KeyPemBytes)
 	if block == nil {
 		return nil, nil, errors.New("can`t parse key")
 	}
@@ -32,7 +32,7 @@ func (pair *X509Pair) Decode() (key *rsa.PrivateKey, cert *x509.Certificate, err
 		return nil, nil, errors.Wrap(err, "can`t parse key")
 	}
 
-	block, _ = pem.Decode([]byte(pair.CertPemBytes))
+	block, _ = pem.Decode(pair.CertPemBytes)
 	if block == nil {
 		return nil, nil, errors.New("can`t parse cert")
 	}
@@ -61,7 +61,7 @@ func NewPKI(storage KeyStorage, sp SerialProvider, crlHolder CRLHolder, subjTemp
 func (p *PKI) NewCa() (*X509Pair, error) {
 	key, err := rsa.GenerateKey(rand.Reader, DefaultKeySizeBytes)
 	if err != nil {
-		return nil, xerrors.New("can`t generate key")
+		return nil, errors.New("can`t generate key")
 	}
 
 	subj := p.subjTemplate
@@ -87,7 +87,7 @@ func (p *PKI) NewCa() (*X509Pair, error) {
 	// Sign the certificate authority
 	certificate, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
 	if err != nil {
-		return nil, xerrors.New("can`t generate cert")
+		return nil, errors.New("can`t generate cert")
 	}
 
 	res := NewX509Pair(
@@ -227,7 +227,8 @@ func (p *PKI) RevokeOne(serial *big.Int) error {
 		SerialNumber:   serial,
 		RevocationTime: time.Now(),
 	})
-	crlBytes, err := caCert.CreateCRL(rand.Reader, caKey, removeDups(list), time.Now(), time.Now().Add(99*365*24*time.Hour))
+	crlBytes, err := caCert.CreateCRL(
+		rand.Reader, caKey, removeDups(list), time.Now(), time.Now().Add(99*365*24*time.Hour))
 	if err != nil {
 		return errors.Wrap(err, "can`t create crl")
 	}
