@@ -14,6 +14,7 @@ import (
 	"github.com/pkg/errors"
 )
 
+// x509 pair representation
 type X509Pair struct {
 	KeyPemBytes  []byte   // pem encoded rsa.PrivateKey bytes
 	CertPemBytes []byte   // pem encoded x509.Certificate bytes
