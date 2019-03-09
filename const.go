@@ -4,6 +4,8 @@ const (
 	PEMCertificateBlock   string = "CERTIFICATE"
 	PEMRSAPrivateKeyBlock        = "RSA PRIVATE KEY"
 	PEMx509CRLBlock              = "X509 CRL"
+	CertFileExtension            = ".crt"
+	KeyFileExtension             = ".key"
 	DefaultKeySizeBytes   int    = 2048
 	DefaultExpireYears           = 99
 )
