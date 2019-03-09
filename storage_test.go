@@ -615,3 +615,15 @@ func TestDirKeyStorage_GetAll(t *testing.T) {
 		assert.Len(t, all, 3)
 	})
 }
+
+func TestDirKeyStorage_GetLastByCn(t *testing.T) {
+	storPath := filepath.Join(getTestDir(), "empty_stor")
+	stor := NewDirKeyStorage(storPath)
+	_ = os.MkdirAll(filepath.Join(storPath, "any"), 0755)
+	defer os.RemoveAll(storPath)
+	t.Run("empty stor", func(t *testing.T) {
+		all, err := stor.GetLastByCn("any")
+		assert.NoError(t, err)
+		assert.Nil(t, all)
+	})
+}

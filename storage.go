@@ -194,7 +194,7 @@ func (s *DirKeyStorage) GetByCN(cn string) ([]*X509Pair, error) {
 // GetLastByCn return only last pair with cn
 func (s *DirKeyStorage) GetLastByCn(cn string) (*X509Pair, error) {
 	pairs, err := s.GetByCN(cn)
-	if err != nil {
+	if err != nil || len(pairs) == 0 {
 		return nil, errors.Wrap(err, "can`t get cert")
 	}
 	sort.Slice(pairs, func(i, j int) bool {
