@@ -1,10 +1,10 @@
 package easyrsa
 
 const (
-	PEMCertificateBlock   string = "CERTIFICATE"     // Pem block header for x509.Certificate
-	PEMRSAPrivateKeyBlock        = "RSA PRIVATE KEY" // Pem block header for rsa.PrivateKey
-	PEMx509CRLBlock              = "X509 CRL"        // Pem block header for CRL
-	CertFileExtension            = ".crt"            // Certificate file extension
-	DefaultKeySizeBytes   int    = 2048              // Default key size in bytes
-	DefaultExpireYears           = 99                // Default expire time for certs
+	PEMCertificateBlock   string = "CERTIFICATE"     // pem block header for x509.Certificate
+	PEMRSAPrivateKeyBlock        = "RSA PRIVATE KEY" // pem block header for rsa.PrivateKey
+	PEMx509CRLBlock              = "X509 CRL"        // pem block header for CRL
+	CertFileExtension            = ".crt"            // pertificate file extension
+	DefaultKeySizeBytes   int    = 2048              // pefault key size in bytes
+	DefaultExpireYears           = 99                // pefault expire time for certs
 )
