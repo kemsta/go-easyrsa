@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"sync"
 
@@ -17,20 +18,22 @@ import (
 type KeyStorage interface {
 	Put(pair *X509Pair) error                       // Put new pair to Storage. Overwrite if already exist.
 	GetByCN(cn string) ([]*X509Pair, error)         // Get all keypairs by CN.
+	GetLastByCn(cn string) (*X509Pair, error)       // Get last pair by CN.
 	GetBySerial(serial *big.Int) (*X509Pair, error) // Get one keypair by serial.
 	DeleteByCn(cn string) error                     // Delete all keypairs by CN.
 	DeleteBySerial(serial *big.Int) error           // Delete one keypair by serial.
 }
 
 type SerialProvider interface {
-	Next() (*big.Int, error)
+	Next() (*big.Int, error) // Next return next uniq serial
 }
 
 type CRLHolder interface {
-	Put([]byte) error
-	Get() (*pkix.CertificateList, error)
+	Put([]byte) error                    // Put file content for crl
+	Get() (*pkix.CertificateList, error) // Get current revoked cert list
 }
 
+// FileCRLHolder implement CRLHolder interface
 type FileCRLHolder struct {
 	sync.RWMutex
 	path string
@@ -67,6 +70,7 @@ func (h *FileCRLHolder) Get() (*pkix.CertificateList, error) {
 	return list, nil
 }
 
+// FileSerialProvider implement SerialProvider interface with storing serial in file
 type FileSerialProvider struct {
 	sync.Mutex
 	path string
@@ -105,6 +109,7 @@ func NewFileSerialProvider(path string) *FileSerialProvider {
 	return &FileSerialProvider{path: path}
 }
 
+// DirKeyStorage is a implementation KeyStorage interface with storing pairs on fs
 type DirKeyStorage struct {
 	keydir string
 }
@@ -113,6 +118,7 @@ func NewDirKeyStorage(keydir string) *DirKeyStorage {
 	return &DirKeyStorage{keydir: keydir}
 }
 
+// Put keypair in dir as /keydir/cn/serial.[crt,key]
 func (s *DirKeyStorage) Put(pair *X509Pair) error {
 	certPath, keyPath, err := s.makePath(pair)
 	if err != nil {
@@ -129,6 +135,7 @@ func (s *DirKeyStorage) Put(pair *X509Pair) error {
 	return nil
 }
 
+// DeleteByCn delete all pair with cn
 func (s *DirKeyStorage) DeleteByCn(cn string) error {
 	err := os.Remove(filepath.Join(s.keydir, cn))
 	if err != nil {
@@ -137,6 +144,7 @@ func (s *DirKeyStorage) DeleteByCn(cn string) error {
 	return nil
 }
 
+// Delete only one pair with serial
 func (s *DirKeyStorage) DeleteBySerial(serial *big.Int) error {
 	pair, err := s.GetBySerial(serial)
 	if err != nil {
@@ -155,6 +163,7 @@ func (s *DirKeyStorage) DeleteBySerial(serial *big.Int) error {
 	return nil
 }
 
+// GetByCN return all pairs with cn
 func (s *DirKeyStorage) GetByCN(cn string) ([]*X509Pair, error) {
 	res := make([]*X509Pair, 0)
 	err := filepath.Walk(filepath.Join(s.keydir, cn), func(path string, info os.FileInfo, err error) error {
@@ -182,6 +191,19 @@ func (s *DirKeyStorage) GetByCN(cn string) ([]*X509Pair, error) {
 	return res, err
 }
 
+// GetLastByCn return only last pair with cn
+func (s *DirKeyStorage) GetLastByCn(cn string) (*X509Pair, error) {
+	pairs, err := s.GetByCN(cn)
+	if err != nil {
+		return nil, errors.Wrap(err, "can`t get cert")
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		return pairs[i].Serial.Cmp(pairs[j].Serial) == 1
+	})
+	return pairs[0], nil
+}
+
+// GetBySerial return only one pair with serial
 func (s *DirKeyStorage) GetBySerial(serial *big.Int) (*X509Pair, error) {
 	var res *X509Pair
 	err := filepath.Walk(s.keydir, func(path string, info os.FileInfo, err error) error {
@@ -216,6 +238,7 @@ func (s *DirKeyStorage) GetBySerial(serial *big.Int) (*X509Pair, error) {
 	return res, err
 }
 
+// GetAll return all pairs
 func (s *DirKeyStorage) GetAll() ([]*X509Pair, error) {
 	res := make([]*X509Pair, 0)
 	err := filepath.Walk(s.keydir, func(path string, info os.FileInfo, err error) error {

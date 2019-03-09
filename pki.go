@@ -14,7 +14,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-// x509 pair representation
+// X509Pair represent pair cert and key
 type X509Pair struct {
 	KeyPemBytes  []byte   // pem encoded rsa.PrivateKey bytes
 	CertPemBytes []byte   // pem encoded x509.Certificate bytes
@@ -22,7 +22,7 @@ type X509Pair struct {
 	Serial       *big.Int // serial number
 }
 
-// decode pem bytes to rsa.PrivateKey and x509.Certificate
+// Decode pem bytes to rsa.PrivateKey and x509.Certificate
 func (pair *X509Pair) Decode() (key *rsa.PrivateKey, cert *x509.Certificate, err error) {
 	block, _ := pem.Decode(pair.KeyPemBytes)
 	if block == nil {
@@ -45,11 +45,12 @@ func (pair *X509Pair) Decode() (key *rsa.PrivateKey, cert *x509.Certificate, err
 	return
 }
 
-// create new X509Pair
+// NewX509Pair create new X509Pair object
 func NewX509Pair(keyPemBytes []byte, certPemBytes []byte, CN string, serial *big.Int) *X509Pair {
 	return &X509Pair{KeyPemBytes: keyPemBytes, CertPemBytes: certPemBytes, CN: CN, Serial: serial}
 }
 
+// PKI struct holder
 type PKI struct {
 	Storage        KeyStorage
 	serialProvider SerialProvider
@@ -57,10 +58,12 @@ type PKI struct {
 	subjTemplate   pkix.Name
 }
 
+// NewPKI PKI struct "constructor"
 func NewPKI(storage KeyStorage, sp SerialProvider, crlHolder CRLHolder, subjTemplate pkix.Name) *PKI {
 	return &PKI{Storage: storage, serialProvider: sp, crlHolder: crlHolder, subjTemplate: subjTemplate}
 }
 
+// NewCa creating new version self signed CA pair
 func (p *PKI) NewCa() (*X509Pair, error) {
 	key, err := rsa.GenerateKey(rand.Reader, DefaultKeySizeBytes)
 	if err != nil {
@@ -87,7 +90,6 @@ func (p *PKI) NewCa() (*X509Pair, error) {
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 	}
 
-	// Sign the certificate authority
 	certificate, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
 	if err != nil {
 		return nil, errors.New("can`t generate cert")
@@ -111,6 +113,7 @@ func (p *PKI) NewCa() (*X509Pair, error) {
 	return res, nil
 }
 
+// NewCert generate new pair signed by last CA key
 func (p *PKI) NewCert(cn string, server bool) (*X509Pair, error) {
 	caPair, err := p.GetLastCA()
 	if err != nil {
@@ -191,25 +194,17 @@ func (p *PKI) NewCert(cn string, server bool) (*X509Pair, error) {
 	return res, nil
 }
 
+// GetCRL return current revoke list
 func (p *PKI) GetCRL() (*pkix.CertificateList, error) {
 	return p.crlHolder.Get()
 }
 
+// GetLastCA return last CA pair
 func (p *PKI) GetLastCA() (*X509Pair, error) {
-	return p.GetLastCert("ca")
+	return p.Storage.GetLastByCn("ca")
 }
 
-func (p *PKI) GetLastCert(cn string) (*X509Pair, error) {
-	pairs, err := p.Storage.GetByCN(cn)
-	if err != nil {
-		return nil, errors.Wrap(err, "can`t get cert")
-	}
-	sort.Slice(pairs, func(i, j int) bool {
-		return pairs[i].Serial.Cmp(pairs[j].Serial) == 1
-	})
-	return pairs[0], nil
-}
-
+// RevokeOne revoke one pair with serial
 func (p *PKI) RevokeOne(serial *big.Int) error {
 	list := make([]pkix.RevokedCertificate, 0)
 	if oldList, err := p.GetCRL(); err == nil {
@@ -246,6 +241,7 @@ func (p *PKI) RevokeOne(serial *big.Int) error {
 	return nil
 }
 
+// RevokeAllByCN revoke all pairs with common name
 func (p *PKI) RevokeAllByCN(cn string) error {
 	pairs, err := p.Storage.GetByCN(cn)
 	if err != nil {
