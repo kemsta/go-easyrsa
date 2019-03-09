@@ -15,12 +15,13 @@ import (
 )
 
 type X509Pair struct {
-	KeyPemBytes  []byte
-	CertPemBytes []byte
-	CN           string
-	Serial       *big.Int
+	KeyPemBytes  []byte   // pem encoded rsa.PrivateKey bytes
+	CertPemBytes []byte   // pem encoded x509.Certificate bytes
+	CN           string   // common name
+	Serial       *big.Int // serial number
 }
 
+// decode pem bytes to rsa.PrivateKey and x509.Certificate
 func (pair *X509Pair) Decode() (key *rsa.PrivateKey, cert *x509.Certificate, err error) {
 	block, _ := pem.Decode(pair.KeyPemBytes)
 	if block == nil {
@@ -43,6 +44,7 @@ func (pair *X509Pair) Decode() (key *rsa.PrivateKey, cert *x509.Certificate, err
 	return
 }
 
+// create new X509Pair
 func NewX509Pair(keyPemBytes []byte, certPemBytes []byte, CN string, serial *big.Int) *X509Pair {
 	return &X509Pair{KeyPemBytes: keyPemBytes, CertPemBytes: certPemBytes, CN: CN, Serial: serial}
 }
