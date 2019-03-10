@@ -1,13 +1,13 @@
 package easyrsa
 
 type NotExist struct {
-	message string
+	err string
 }
 
 func (e *NotExist) Error() string {
-	return e.message
+	return e.err
 }
 
-func NewNotExist(message string) *NotExist {
-	return &NotExist{message: message}
+func NewNotExist(err string) *NotExist {
+	return &NotExist{err: err}
 }

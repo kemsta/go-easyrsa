@@ -125,6 +125,22 @@ func TestPKI_RevokeOne(t *testing.T) {
 	})
 }
 
+func TestPKI_IsRevoked(t *testing.T) {
+	pki, cleanup := getTmpPki()
+	defer cleanup()
+	_, _ = pki.NewCa()
+	_, _ = pki.NewCert("server", true)
+	_, _ = pki.NewCert("server", true)
+	_, _ = pki.NewCert("cert", false)
+	t.Run("revoke", func(t *testing.T) {
+		err := pki.RevokeOne(big.NewInt(4))
+		assert.NoError(t, err)
+		assert.True(t, pki.IsRevoked(big.NewInt(4)))
+		assert.False(t, pki.IsRevoked(big.NewInt(1)))
+		assert.False(t, pki.IsRevoked(big.NewInt(42)))
+	})
+}
+
 func TestPKI_RevokeAllByCN(t *testing.T) {
 	pki, cleanup := getTmpPki()
 	defer cleanup()

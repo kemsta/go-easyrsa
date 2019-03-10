@@ -263,7 +263,7 @@ func (p *PKI) IsRevoked(serial *big.Int) bool {
 		revokedCerts = &pkix.CertificateList{}
 	}
 	for _, cert := range revokedCerts.TBSCertList.RevokedCertificates {
-		if cert.SerialNumber == serial {
+		if cert.SerialNumber.Cmp(serial) == 0 {
 			return true
 		}
 	}
