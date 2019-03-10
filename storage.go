@@ -188,6 +188,9 @@ func (s *DirKeyStorage) GetByCN(cn string) ([]*X509Pair, error) {
 		}
 		return nil
 	})
+	if len(res) == 0 {
+		return nil, errors.WithStack(NewNotExist("not found"))
+	}
 	return res, err
 }
 
@@ -233,7 +236,7 @@ func (s *DirKeyStorage) GetBySerial(serial *big.Int) (*X509Pair, error) {
 		return nil
 	})
 	if res == nil {
-		return nil, errors.New("can`t find by serial")
+		return nil, errors.WithStack(NewNotExist("not found"))
 	}
 	return res, err
 }
