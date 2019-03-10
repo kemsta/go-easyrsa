@@ -22,6 +22,7 @@ type KeyStorage interface {
 	GetBySerial(serial *big.Int) (*X509Pair, error) // Get one keypair by serial.
 	DeleteByCn(cn string) error                     // Delete all keypairs by CN.
 	DeleteBySerial(serial *big.Int) error           // Delete one keypair by serial.
+	GetAll() ([]*X509Pair, error)                   // Get all keypair
 }
 
 type SerialProvider interface {

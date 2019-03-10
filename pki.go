@@ -256,6 +256,20 @@ func (p *PKI) RevokeAllByCN(cn string) error {
 	return nil
 }
 
+// IsRevoked return true if it`s revoked serial
+func (p *PKI) IsRevoked(serial *big.Int) bool {
+	revokedCerts, err := p.GetCRL()
+	if err != nil {
+		revokedCerts = &pkix.CertificateList{}
+	}
+	for _, cert := range revokedCerts.TBSCertList.RevokedCertificates {
+		if cert.SerialNumber == serial {
+			return true
+		}
+	}
+	return false
+}
+
 func removeDups(list []pkix.RevokedCertificate) []pkix.RevokedCertificate {
 	encountered := map[int64]bool{}
 	result := make([]pkix.RevokedCertificate, 0)
