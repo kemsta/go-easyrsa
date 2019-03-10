@@ -278,6 +278,17 @@ func TestDirKeyStorage_GetByCN(t *testing.T) {
 		wantErr bool
 	}{
 		{
+			name: "not exist",
+			fields: fields{
+				keydir: filepath.Join(getTestDir(), "dir_keystorage"),
+			},
+			args: args{
+				cn: "not_exist",
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
 			name: "bad cert",
 			fields: fields{
 				keydir: filepath.Join(getTestDir(), "dir_keystorage"),
@@ -285,8 +296,8 @@ func TestDirKeyStorage_GetByCN(t *testing.T) {
 			args: args{
 				cn: "bad_cert",
 			},
-			want:    make([]*X509Pair, 0),
-			wantErr: false,
+			want:    nil,
+			wantErr: true,
 		},
 		{
 			name: "bad key",
@@ -296,8 +307,8 @@ func TestDirKeyStorage_GetByCN(t *testing.T) {
 			args: args{
 				cn: "bad_key",
 			},
-			want:    make([]*X509Pair, 0),
-			wantErr: false,
+			want:    nil,
+			wantErr: true,
 		},
 		{
 			name: "good cert",
@@ -623,7 +634,7 @@ func TestDirKeyStorage_GetLastByCn(t *testing.T) {
 	defer os.RemoveAll(storPath)
 	t.Run("empty stor", func(t *testing.T) {
 		all, err := stor.GetLastByCn("any")
-		assert.NoError(t, err)
+		assert.Error(t, err)
 		assert.Nil(t, all)
 	})
 }
