@@ -1,18 +1,25 @@
 package easyrsa
 
 import (
+	"context"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"fmt"
+	"github.com/gofrs/flock"
 	"io/ioutil"
 	"math/big"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
-	"sync"
+	"time"
 
 	"github.com/pkg/errors"
+)
+
+const (
+	LockPeriod  = time.Millisecond * 100
+	LockTimeout = time.Second * 10
 )
 
 type KeyStorage interface {
@@ -36,18 +43,28 @@ type CRLHolder interface {
 
 // FileCRLHolder implement CRLHolder interface
 type FileCRLHolder struct {
-	sync.RWMutex
-	path string
+	locker *flock.Flock
+	path   string
 }
 
 func NewFileCRLHolder(path string) *FileCRLHolder {
-	return &FileCRLHolder{path: path}
+	return &FileCRLHolder{locker: flock.New(path), path: path}
 }
 
 func (h *FileCRLHolder) Put(content []byte) error {
-	h.Lock()
-	defer h.Unlock()
-	err := ioutil.WriteFile(h.path, content, 0666)
+	ctx, cancel := context.WithTimeout(context.Background(), LockTimeout)
+	defer cancel()
+	locked, err := h.locker.TryLockContext(ctx, LockPeriod)
+	if err != nil {
+		return err
+	}
+	if !locked {
+		return errors.New("can`t lock serial file")
+	}
+	defer func() {
+		_ = h.locker.Unlock()
+	}()
+	err = ioutil.WriteFile(h.path, content, 0666)
 	if err != nil {
 		return errors.Wrap(err, "can`t put new crl file")
 	}
@@ -55,9 +72,14 @@ func (h *FileCRLHolder) Put(content []byte) error {
 }
 
 func (h *FileCRLHolder) Get() (*pkix.CertificateList, error) {
-	h.RLock()
-	defer h.RUnlock()
-	if _, err := os.Stat(h.path); err != nil {
+	err := h.locker.RLock()
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = h.locker.Unlock()
+	}()
+	if stat, err := os.Stat(h.path); err != nil || stat.Size() == 0 {
 		return &pkix.CertificateList{}, nil
 	}
 	bytes, err := ioutil.ReadFile(h.path)
@@ -73,19 +95,31 @@ func (h *FileCRLHolder) Get() (*pkix.CertificateList, error) {
 
 // FileSerialProvider implement SerialProvider interface with storing serial in file
 type FileSerialProvider struct {
-	sync.Mutex
-	path string
+	locker *flock.Flock
+	path   string
 }
 
 func (p *FileSerialProvider) Next() (*big.Int, error) {
-	p.Lock()
-	defer p.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), LockTimeout)
+	defer cancel()
+	locked, err := p.locker.TryLockContext(ctx, LockPeriod)
+	if err != nil {
+		return nil, err
+	}
+	if !locked {
+		return nil, errors.New("can`t lock serial file")
+	}
+	defer func() {
+		_ = p.locker.Unlock()
+	}()
 	res := big.NewInt(0)
 	file, err := os.OpenFile(p.path, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return nil, errors.Wrap(err, "can`t open serial file")
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 	bytes, err := ioutil.ReadAll(file)
 	if err != nil {
 		return nil, errors.Wrap(err, "can`t read serial file")
@@ -107,7 +141,10 @@ func (p *FileSerialProvider) Next() (*big.Int, error) {
 }
 
 func NewFileSerialProvider(path string) *FileSerialProvider {
-	return &FileSerialProvider{path: path}
+	return &FileSerialProvider{
+		locker: flock.New(path),
+		path:   path,
+	}
 }
 
 // DirKeyStorage is a implementation KeyStorage interface with storing pairs on fs
