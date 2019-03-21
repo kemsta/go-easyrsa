@@ -231,16 +231,6 @@ func TestDirKeyStorage_DeleteByCn(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "not exist",
-			fields: fields{
-				keydir: filepath.Join(getTestDir(), "dir_keystorage"),
-			},
-			args: args{
-				cn: "not_exist",
-			},
-			wantErr: true,
-		},
-		{
 			name: "recurse delete",
 			fields: fields{
 				keydir: filepath.Join(getTestDir(), "dir_keystorage"),
@@ -501,9 +491,7 @@ func TestFileCRLHolder_Put(t *testing.T) {
 		fileName := filepath.Join(getTestDir(), "dir_keystorage", "not_exist_crl.pem")
 		content := []byte("content")
 		defer os.RemoveAll(fileName)
-		h := &FileCRLHolder{
-			path: fileName,
-		}
+		h := NewFileCRLHolder(fileName)
 		err := h.Put(content)
 		if err != nil {
 			t.Errorf("FileCRLHolder.Put() error = %v", err)
@@ -519,9 +507,7 @@ func TestFileCRLHolder_Put(t *testing.T) {
 		defer func() {
 			_ = ioutil.WriteFile(fileName, []byte("asd"), 0666)
 		}()
-		h := &FileCRLHolder{
-			path: fileName,
-		}
+		h := NewFileCRLHolder(fileName)
 		err := h.Put(content)
 		if err != nil {
 			t.Errorf("FileCRLHolder.Put() error = %v", err)
@@ -537,9 +523,7 @@ func TestFileCRLHolder_Put(t *testing.T) {
 		defer func() {
 			_ = ioutil.WriteFile(fileName, []byte("asd"), 0666)
 		}()
-		h := &FileCRLHolder{
-			path: fileName,
-		}
+		h := NewFileCRLHolder(fileName)
 		err := h.Put(content)
 		if err == nil {
 			t.Errorf("FileCRLHolder.Put() error = %v", err)
@@ -592,9 +576,7 @@ func TestFileCRLHolder_Get(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := &FileCRLHolder{
-				path: tt.fields.path,
-			}
+			h := NewFileCRLHolder(tt.fields.path)
 			_, err := h.Get()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("FileCRLHolder.Get() error = %v, wantErr %v", err, tt.wantErr)
