@@ -17,6 +17,11 @@ import (
 	"github.com/pkg/errors"
 )
 
+const (
+	LockPeriod  = time.Second * 1
+	LockTimeout = time.Second * 10
+)
+
 type KeyStorage interface {
 	Put(pair *X509Pair) error                       // Put new pair to Storage. Overwrite if already exist.
 	GetByCN(cn string) ([]*X509Pair, error)         // Get all keypairs by CN.
@@ -48,8 +53,8 @@ func NewFileCRLHolder(path string) *FileCRLHolder {
 }
 
 func (h *FileCRLHolder) Put(content []byte) error {
-	ctx, _ := context.WithTimeout(context.Background(), time.Second*10)
-	locked, err := h.TryLockContext(ctx, 1)
+	ctx, _ := context.WithTimeout(context.Background(), LockTimeout)
+	locked, err := h.TryLockContext(ctx, LockPeriod)
 	if err != nil {
 		return err
 	}
@@ -95,8 +100,8 @@ type FileSerialProvider struct {
 }
 
 func (p *FileSerialProvider) Next() (*big.Int, error) {
-	ctx, _ := context.WithTimeout(context.Background(), time.Second*10)
-	locked, err := p.TryLockContext(ctx, 1)
+	ctx, _ := context.WithTimeout(context.Background(), LockTimeout)
+	locked, err := p.TryLockContext(ctx, LockPeriod)
 	if err != nil {
 		return nil, err
 	}
