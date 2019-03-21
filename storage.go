@@ -43,18 +43,18 @@ type CRLHolder interface {
 
 // FileCRLHolder implement CRLHolder interface
 type FileCRLHolder struct {
-	flock.Flock
-	path string
+	locker *flock.Flock
+	path   string
 }
 
 func NewFileCRLHolder(path string) *FileCRLHolder {
-	locker := *flock.New(path)
-	return &FileCRLHolder{Flock: locker, path: path}
+	return &FileCRLHolder{locker: flock.New(path), path: path}
 }
 
 func (h *FileCRLHolder) Put(content []byte) error {
-	ctx, _ := context.WithTimeout(context.Background(), LockTimeout)
-	locked, err := h.TryLockContext(ctx, LockPeriod)
+	ctx, cancel := context.WithTimeout(context.Background(), LockTimeout)
+	defer cancel()
+	locked, err := h.locker.TryLockContext(ctx, LockPeriod)
 	if err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func (h *FileCRLHolder) Put(content []byte) error {
 		return errors.New("can`t lock serial file")
 	}
 	defer func() {
-		_ = h.Unlock()
+		_ = h.locker.Unlock()
 	}()
 	err = ioutil.WriteFile(h.path, content, 0666)
 	if err != nil {
@@ -72,12 +72,12 @@ func (h *FileCRLHolder) Put(content []byte) error {
 }
 
 func (h *FileCRLHolder) Get() (*pkix.CertificateList, error) {
-	err := h.RLock()
+	err := h.locker.RLock()
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
-		_ = h.Unlock()
+		_ = h.locker.Unlock()
 	}()
 	if stat, err := os.Stat(h.path); err != nil || stat.Size() == 0 {
 		return &pkix.CertificateList{}, nil
@@ -95,13 +95,14 @@ func (h *FileCRLHolder) Get() (*pkix.CertificateList, error) {
 
 // FileSerialProvider implement SerialProvider interface with storing serial in file
 type FileSerialProvider struct {
-	flock.Flock
-	path string
+	locker *flock.Flock
+	path   string
 }
 
 func (p *FileSerialProvider) Next() (*big.Int, error) {
-	ctx, _ := context.WithTimeout(context.Background(), LockTimeout)
-	locked, err := p.TryLockContext(ctx, LockPeriod)
+	ctx, cancel := context.WithTimeout(context.Background(), LockTimeout)
+	defer cancel()
+	locked, err := p.locker.TryLockContext(ctx, LockPeriod)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +110,7 @@ func (p *FileSerialProvider) Next() (*big.Int, error) {
 		return nil, errors.New("can`t lock serial file")
 	}
 	defer func() {
-		_ = p.Unlock()
+		_ = p.locker.Unlock()
 	}()
 	res := big.NewInt(0)
 	file, err := os.OpenFile(p.path, os.O_RDWR|os.O_CREATE, 0666)
@@ -140,10 +141,9 @@ func (p *FileSerialProvider) Next() (*big.Int, error) {
 }
 
 func NewFileSerialProvider(path string) *FileSerialProvider {
-	locker := *flock.New(path)
 	return &FileSerialProvider{
-		Flock: locker,
-		path:  path,
+		locker: flock.New(path),
+		path:   path,
 	}
 }
 
