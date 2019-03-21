@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	LockPeriod  = time.Second * 1
+	LockPeriod  = time.Millisecond * 100
 	LockTimeout = time.Second * 10
 )
 
