@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var testData = "test_data/pki/"
+var testData = "test/pki/"
 
 func TestPki_NewCa(t *testing.T) {
 	pki, cleanup := getTmpPki()
