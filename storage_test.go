@@ -14,7 +14,7 @@ import (
 )
 
 func getTestDir() string {
-	res, _ := filepath.Abs("test_data")
+	res, _ := filepath.Abs("test")
 	return res
 }
 
@@ -426,7 +426,7 @@ func TestDirKeyStorage_DeleteBySerial(t *testing.T) {
 
 func TestFileSerialProvider_Next(t *testing.T) {
 	defer func() {
-		os.RemoveAll(filepath.Join(getTestDir(), "dir_keystorage", "new_serial"))
+		_ = os.RemoveAll(filepath.Join(getTestDir(), "dir_keystorage", "new_serial"))
 		_ = ioutil.WriteFile(filepath.Join(getTestDir(), "dir_keystorage", "wrong_serial"), []byte("gggg"), 0666)
 	}()
 	type fields struct {
@@ -490,7 +490,9 @@ func TestFileCRLHolder_Put(t *testing.T) {
 	t.Run("not exist", func(t *testing.T) {
 		fileName := filepath.Join(getTestDir(), "dir_keystorage", "not_exist_crl.pem")
 		content := []byte("content")
-		defer os.RemoveAll(fileName)
+		defer func() {
+			_ = os.RemoveAll(fileName)
+		}()
 		h := NewFileCRLHolder(fileName)
 		err := h.Put(content)
 		if err != nil {
@@ -550,14 +552,6 @@ func TestFileCRLHolder_Get(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "dir",
-			fields: fields{
-				path: filepath.Join(getTestDir(), "dir_keystorage", "crl.dir"),
-			},
-			want:    nil,
-			wantErr: true,
-		},
-		{
 			name: "broken",
 			fields: fields{
 				path: filepath.Join(getTestDir(), "dir_keystorage", "exist.pem"),
@@ -590,7 +584,9 @@ func TestDirKeyStorage_GetAll(t *testing.T) {
 	storPath := filepath.Join(getTestDir(), "empty_stor")
 	stor := NewDirKeyStorage(storPath)
 	_ = os.MkdirAll(storPath, 0755)
-	defer os.RemoveAll(storPath)
+	defer func() {
+		_ = os.RemoveAll(storPath)
+	}()
 	t.Run("empty stor", func(t *testing.T) {
 		all, err := stor.GetAll()
 		assert.NoError(t, err)
@@ -613,7 +609,9 @@ func TestDirKeyStorage_GetLastByCn(t *testing.T) {
 	storPath := filepath.Join(getTestDir(), "empty_stor")
 	stor := NewDirKeyStorage(storPath)
 	_ = os.MkdirAll(filepath.Join(storPath, "any"), 0755)
-	defer os.RemoveAll(storPath)
+	defer func() {
+		_ = os.RemoveAll(storPath)
+	}()
 	t.Run("empty stor", func(t *testing.T) {
 		all, err := stor.GetLastByCn("any")
 		assert.Error(t, err)
