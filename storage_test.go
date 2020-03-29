@@ -550,14 +550,6 @@ func TestFileCRLHolder_Get(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "dir",
-			fields: fields{
-				path: filepath.Join(getTestDir(), "dir_keystorage", "crl.dir"),
-			},
-			want:    nil,
-			wantErr: true,
-		},
-		{
 			name: "broken",
 			fields: fields{
 				path: filepath.Join(getTestDir(), "dir_keystorage", "exist.pem"),
