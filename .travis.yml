@@ -3,7 +3,7 @@ language: go
 dist: xenial
 
 go:
-  - 1.12
+  - 1.14
 
 before_script:
   - go get github.com/golangci/golangci-lint/cmd/golangci-lint
