@@ -1,21 +1,24 @@
 package main
 
 import (
-	"crypto/x509/pkix"
 	"fmt"
-	"github.com/kemsta/go-easyrsa"
+	"github.com/kemsta/go-easyrsa/pkg/pki"
 	"github.com/spf13/cobra"
+	"log"
 	"os"
-	"path/filepath"
 )
 
 var keyDir string
-var pki *easyrsa.PKI
+var pkiI *pki.PKI
 
 var rootCmd = &cobra.Command{
 	Use: "easyrsa",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		initPki()
+		var err error
+		pkiI, err = getPki()
+		if err != nil {
+			log.Fatal(err)
+		}
 	},
 }
 
@@ -30,7 +33,7 @@ var buildCa = &cobra.Command{
 	Use:   "build-ca",
 	Short: "build ca cert/key",
 	Run: func(cmd *cobra.Command, args []string) {
-		_, err := pki.NewCa()
+		_, err := pkiI.NewCa()
 		if err != nil {
 			fmt.Println(fmt.Errorf("can`t build ca pair: %s", err))
 		}
@@ -42,7 +45,7 @@ var buildServerKey = &cobra.Command{
 	Short: "build server cert/key",
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		_, err := pki.NewCert(args[0], true)
+		_, err := pkiI.NewCert(args[0], pki.Server())
 		if err != nil {
 			fmt.Println(fmt.Errorf("can`t build server pair: %s", err))
 		}
@@ -54,7 +57,7 @@ var buildKey = &cobra.Command{
 	Short: "build client cert/key",
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		_, err := pki.NewCert(args[0], false)
+		_, err := pkiI.NewCert(args[0])
 		if err != nil {
 			fmt.Println(fmt.Errorf("can`t build client pair: %s", err))
 		}
@@ -66,7 +69,7 @@ var revokeFull = &cobra.Command{
 	Short: "revoke cert",
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		err := pki.RevokeAllByCN(args[0])
+		err := pkiI.RevokeAllByCN(args[0])
 		if err != nil {
 			fmt.Println(fmt.Errorf("can`t revoke cert: %s", err))
 		}
@@ -81,13 +84,6 @@ func init() {
 	rootCmd.AddCommand(revokeFull)
 }
 
-func initPki() {
-	err := os.MkdirAll(keyDir, 0750)
-	if err != nil {
-		fmt.Println(fmt.Errorf("can`t create key dir: %s", err))
-	}
-	storage := easyrsa.NewDirKeyStorage(keyDir)
-	serialProvider := easyrsa.NewFileSerialProvider(filepath.Join(keyDir, "index.txt"))
-	crlHolder := easyrsa.NewFileCRLHolder(filepath.Join(keyDir, "crl.pem"))
-	pki = easyrsa.NewPKI(storage, serialProvider, crlHolder, pkix.Name{})
+func getPki() (*pki.PKI, error) {
+	return pki.InitPKI(keyDir, nil)
 }
