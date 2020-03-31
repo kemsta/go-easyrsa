@@ -3,9 +3,9 @@
 [![Coverage Status](https://coveralls.io/repos/github/kemsta/go-easyrsa/badge.svg?branch=master)](https://coveralls.io/github/kemsta/go-easyrsa?branch=master)
 [![GoDoc](https://godoc.org/github.com/kemsta/go-easyrsa?status.svg)](https://godoc.org/github.com/kemsta/go-easyrsa)
 
-Simple go library with implementation of some [easy-rsa](https://github.com/OpenVPN/easy-rsa) functions
+Simple golang implementation some [easy-rsa](https://github.com/OpenVPN/easy-rsa) functions
 
-## Sample cli usage
+## cli usage examples
 
 go get github.com/kemsta/go-easyrsa/easyrsa-cli
 
