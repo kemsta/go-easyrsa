@@ -3,6 +3,7 @@ package pki
 import (
 	"crypto/x509/pkix"
 	"github.com/kemsta/go-easyrsa/internal/fsStorage"
+	"log"
 	"math/big"
 	"os"
 	"path"
@@ -10,7 +11,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/prometheus/common/log"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -233,8 +233,8 @@ func (p *PKI) RevokeAllByCN(cn string) error {
 	if err != nil {
 		return fmt.Errorf("can`t get pairs for revoke: %w", err)
 	}
-	for _, pair := range pairs {
-		err := p.RevokeOne(pair.Serial)
+	for _, certPair := range pairs {
+		err := p.RevokeOne(certPair.Serial)
 		if err != nil {
 			return fmt.Errorf("can`t revoke: %w", err)
 		}
