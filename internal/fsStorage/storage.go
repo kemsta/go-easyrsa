@@ -26,7 +26,7 @@ const (
 	CertFileExtension = ".crt" // certificate file extension
 )
 
-// Common CRLHolder implementation. It's saving file on fs
+// FileCRLHolder is a common CRLHolder implementation. It's saving file on fs
 type FileCRLHolder struct {
 	locker *flock.Flock
 	path   string
@@ -36,7 +36,7 @@ func NewFileCRLHolder(path string) *FileCRLHolder {
 	return &FileCRLHolder{locker: flock.New(fmt.Sprintf("%v.lock", path)), path: path}
 }
 
-// Save new crl content to storage
+// Put the content fo crl to the storage
 func (h *FileCRLHolder) Put(content []byte) error {
 	ctx, cancel := context.WithTimeout(context.Background(), LockTimeout)
 	defer cancel()
@@ -57,7 +57,7 @@ func (h *FileCRLHolder) Put(content []byte) error {
 	return nil
 }
 
-// Get crl content from storage
+// Get crl content from the storage
 func (h *FileCRLHolder) Get() (*pkix.CertificateList, error) {
 	err := h.locker.RLock()
 	if err != nil {
@@ -80,13 +80,13 @@ func (h *FileCRLHolder) Get() (*pkix.CertificateList, error) {
 	return list, nil
 }
 
-// FileSerialProvider implement SerialProvider interface with storing serial in file on fs
+// FileSerialProvider implements SerialProvider interface with storing serial into the file on fs
 type FileSerialProvider struct {
 	locker *flock.Flock
 	path   string
 }
 
-// Get next serial and increment counter in storage
+// Next serial and increment counter in storage
 func (p *FileSerialProvider) Next() (*big.Int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), LockTimeout)
 	defer cancel()
@@ -127,7 +127,7 @@ func NewFileSerialProvider(path string) *FileSerialProvider {
 	}
 }
 
-// DirKeyStorage is a Storage interface implementation with storing pairs on fs
+// DirKeyStorage is a storage interface implementation with storing pairs on fs
 type DirKeyStorage struct {
 	keydir string
 }
@@ -142,17 +142,17 @@ func (s *DirKeyStorage) Put(pair *pair.X509Pair) error {
 	if err != nil {
 		return fmt.Errorf("can`t make path %v: %w", pair, err)
 	}
-	if err := writeFileAtomic(certPath, bytes.NewReader(pair.CertPemBytes), 0644); err != nil {
+	if err := writeFileAtomic(certPath, bytes.NewReader(pair.CertPemBytes()), 0644); err != nil {
 		return fmt.Errorf("can`t write cert %v: %w", certPath, err)
 	}
 
-	if err := writeFileAtomic(keyPath, bytes.NewReader(pair.KeyPemBytes), 0644); err != nil {
+	if err := writeFileAtomic(keyPath, bytes.NewReader(pair.KeyPemBytes()), 0644); err != nil {
 		return fmt.Errorf("can`t write cert %v: %w", certPath, err)
 	}
 	return nil
 }
 
-// DeleteByCn delete all pair with cn
+// DeleteByCn delete all pairs by CN
 func (s *DirKeyStorage) DeleteByCn(cn string) error {
 	err := os.Remove(filepath.Join(s.keydir, cn))
 	if err != nil {
@@ -161,14 +161,14 @@ func (s *DirKeyStorage) DeleteByCn(cn string) error {
 	return nil
 }
 
-// Delete only one pair with serial
+// DeleteBySerial delete only one pair by serial
 func (s *DirKeyStorage) DeleteBySerial(serial *big.Int) error {
 	p, err := s.GetBySerial(serial)
 	if err != nil {
 		return fmt.Errorf("can`t find pair by serial %v: %w", serial, err)
 	}
-	certPath := filepath.Join(s.keydir, p.CN, fmt.Sprintf("%s.crt", p.Serial.Text(16)))
-	keyPath := filepath.Join(s.keydir, p.CN, fmt.Sprintf("%s.key", p.Serial.Text(16)))
+	certPath := filepath.Join(s.keydir, p.CN(), fmt.Sprintf("%s.crt", p.Serial().Text(16)))
+	keyPath := filepath.Join(s.keydir, p.CN(), fmt.Sprintf("%s.key", p.Serial().Text(16)))
 	err = os.Remove(certPath)
 	if err != nil {
 		return fmt.Errorf("can`t delete cert %v: %w", certPath, err)
@@ -180,7 +180,7 @@ func (s *DirKeyStorage) DeleteBySerial(serial *big.Int) error {
 	return nil
 }
 
-// GetByCN return all pairs with cn
+// GetByCN return all pairs by cn
 func (s *DirKeyStorage) GetByCN(cn string) ([]*pair.X509Pair, error) {
 	res := make([]*pair.X509Pair, 0)
 	err := filepath.Walk(filepath.Join(s.keydir, cn), func(path string, info os.FileInfo, err error) error {
@@ -201,7 +201,7 @@ func (s *DirKeyStorage) GetByCN(cn string) ([]*pair.X509Pair, error) {
 			if err != nil {
 				return nil
 			}
-			res = append(res, pair.NewX509Pair(keyBytes, certBytes, cn, big.NewInt(serial)))
+			res = append(res, pair.ImportX509(keyBytes, certBytes, cn, big.NewInt(serial)))
 		}
 		return nil
 	})
@@ -211,19 +211,19 @@ func (s *DirKeyStorage) GetByCN(cn string) ([]*pair.X509Pair, error) {
 	return res, err
 }
 
-// GetLastByCn return only last pair with cn
+// GetLastByCn return only last pair by cn
 func (s *DirKeyStorage) GetLastByCn(cn string) (*pair.X509Pair, error) {
 	pairs, err := s.GetByCN(cn)
 	if err != nil || len(pairs) == 0 {
 		return nil, fmt.Errorf("can`t get cert %v: %w", cn, err)
 	}
 	sort.Slice(pairs, func(i, j int) bool {
-		return pairs[i].Serial.Cmp(pairs[j].Serial) == 1
+		return pairs[i].Serial().Cmp(pairs[j].Serial()) == 1
 	})
 	return pairs[0], nil
 }
 
-// GetBySerial return only one pair with serial
+// GetBySerial return only one pair by serial
 func (s *DirKeyStorage) GetBySerial(serial *big.Int) (*pair.X509Pair, error) {
 	var res *pair.X509Pair
 	err := filepath.Walk(s.keydir, func(path string, info os.FileInfo, err error) error {
@@ -246,7 +246,7 @@ func (s *DirKeyStorage) GetBySerial(serial *big.Int) (*pair.X509Pair, error) {
 				if err != nil {
 					return nil
 				}
-				res = pair.NewX509Pair(keyBytes, certBytes, cn, big.NewInt(ser))
+				res = pair.ImportX509(keyBytes, certBytes, cn, big.NewInt(ser))
 				return nil
 			}
 		}
@@ -280,7 +280,7 @@ func (s *DirKeyStorage) GetAll() ([]*pair.X509Pair, error) {
 			if err != nil {
 				return nil
 			}
-			res = append(res, pair.NewX509Pair(keyBytes, certBytes, cn, big.NewInt(ser)))
+			res = append(res, pair.ImportX509(keyBytes, certBytes, cn, big.NewInt(ser)))
 		}
 		return nil
 	})
@@ -291,16 +291,16 @@ func (s *DirKeyStorage) GetAll() ([]*pair.X509Pair, error) {
 }
 
 func (s *DirKeyStorage) makePath(pair *pair.X509Pair) (certPath, keyPath string, err error) {
-	if pair.CN == "" || pair.Serial == nil {
+	if pair.CN() == "" || pair.Serial() == nil {
 		return "", "", errors.New("empty cn or serial")
 	}
-	basePath := filepath.Join(s.keydir, pair.CN)
+	basePath := filepath.Join(s.keydir, pair.CN())
 	err = os.MkdirAll(basePath, 0755)
 	if err != nil {
 		return "", "", fmt.Errorf("can`t create dir for key pair %v: %w", pair, err)
 	}
-	return filepath.Join(basePath, fmt.Sprintf("%s.crt", pair.Serial.Text(16))),
-		filepath.Join(basePath, fmt.Sprintf("%s.key", pair.Serial.Text(16))), nil
+	return filepath.Join(basePath, fmt.Sprintf("%s.crt", pair.Serial().Text(16))),
+		filepath.Join(basePath, fmt.Sprintf("%s.key", pair.Serial().Text(16))), nil
 }
 
 func writeFileAtomic(path string, r io.Reader, mode os.FileMode) error {

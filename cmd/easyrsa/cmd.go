@@ -36,7 +36,7 @@ var buildCa = &cobra.Command{
 	Use:   "build-ca",
 	Short: "build ca cert/key",
 	Run: func(cmd *cobra.Command, args []string) {
-		_, err := pkiI.NewCa()
+		_, err := pkiI.NewCa(2048)
 		if err != nil {
 			fmt.Println(fmt.Errorf("can`t build ca pair: %s", err))
 		}
@@ -50,9 +50,9 @@ var buildServerKey = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		var err error
 		if len(serverDnsNames) > 0 {
-			_, err = pkiI.NewCert(args[0], pki.Server(), pki.DNSNames(strings.Split(serverDnsNames, ",")))
+			_, err = pkiI.NewServerCert(args[0], 2048, pki.DNSNames(strings.Split(serverDnsNames, ",")))
 		} else {
-			_, err = pkiI.NewCert(args[0], pki.Server())
+			_, err = pkiI.NewServerCert(args[0], 2048)
 		}
 		if err != nil {
 			fmt.Println(fmt.Errorf("can`t build server pair: %s", err))
@@ -65,7 +65,7 @@ var buildKey = &cobra.Command{
 	Short: "build client cert/key",
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		_, err := pkiI.NewCert(args[0])
+		_, err := pkiI.NewClientCert(args[0], 2048)
 		if err != nil {
 			fmt.Println(fmt.Errorf("can`t build client pair: %s", err))
 		}

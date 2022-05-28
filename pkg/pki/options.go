@@ -8,21 +8,22 @@ import (
 	"time"
 )
 
-type Option func(*x509.Certificate)
+type CertificateOption func(*x509.Certificate)
+type RequestOption func(request *x509.CertificateRequest)
 
-func Apply(options []Option, cert *x509.Certificate) {
+func applyCertOptions(options []CertificateOption, cert *x509.Certificate) {
 	for _, option := range options {
 		option(cert)
 	}
 }
 
-func CN(cn string) Option {
-	return func(certificate *x509.Certificate) {
-		certificate.Subject.CommonName = cn
+func applyRequestOptions(options []RequestOption, cert *x509.CertificateRequest) {
+	for _, option := range options {
+		option(cert)
 	}
 }
 
-func Server() Option {
+func Server() CertificateOption {
 	return func(certificate *x509.Certificate) {
 		certificate.KeyUsage = x509.KeyUsageDigitalSignature | x509.KeyUsageKeyAgreement | x509.KeyUsageKeyEncipherment
 		certificate.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
@@ -37,26 +38,54 @@ func Server() Option {
 	}
 }
 
-func DNSNames(names []string) Option {
-	return func(certificate *x509.Certificate) {
-		certificate.DNSNames = names
-	}
-}
-
-func IPAddresses(ips []net.IP) Option {
-	return func(certificate *x509.Certificate) {
-		certificate.IPAddresses = ips
-	}
-}
-
-func ExcludedDNSDomains(names []string) Option {
+func ExcludedDNSDomains(names []string) CertificateOption {
 	return func(certificate *x509.Certificate) {
 		certificate.ExcludedDNSDomains = names
 	}
 }
 
-func NotAfter(time time.Time) Option {
+func NotAfter(time time.Time) CertificateOption {
 	return func(certificate *x509.Certificate) {
 		certificate.NotAfter = time
+	}
+}
+
+func CA() CertificateOption {
+	return func(certificate *x509.Certificate) {
+		certificate.IsCA = true
+		certificate.KeyUsage = x509.KeyUsageCertSign | x509.KeyUsageCRLSign
+	}
+}
+
+func Client() CertificateOption {
+	return func(certificate *x509.Certificate) {
+		val, _ := asn1.Marshal(asn1.BitString{Bytes: []byte{0x80}, BitLength: 2})
+		certificate.KeyUsage = x509.KeyUsageDigitalSignature | x509.KeyUsageKeyAgreement
+		certificate.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
+		certificate.ExtraExtensions = []pkix.Extension{
+			{
+				Id:    asn1.ObjectIdentifier{2, 16, 840, 1, 113730, 1, 1},
+				Value: val,
+			},
+		}
+	}
+}
+
+func IPAddresses(ips []net.IP) CertificateOption {
+	return func(certificate *x509.Certificate) {
+		certificate.IPAddresses = ips
+
+	}
+}
+
+func DNSNames(names []string) CertificateOption {
+	return func(certificate *x509.Certificate) {
+		certificate.DNSNames = names
+	}
+}
+
+func CN(cn string) CertificateOption {
+	return func(certificate *x509.Certificate) {
+		certificate.Subject.CommonName = cn
 	}
 }

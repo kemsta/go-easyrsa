@@ -5,8 +5,8 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/asn1"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"github.com/kemsta/go-easyrsa/internal/fsStorage"
 	"github.com/kemsta/go-easyrsa/pkg/pair"
@@ -18,16 +18,14 @@ import (
 )
 
 const (
-	PEMCertificateBlock   string = "CERTIFICATE"     // pem block header for x509.Certificate
-	PEMRSAPrivateKeyBlock        = "RSA PRIVATE KEY" // pem block header for rsa.PrivateKey
-	PEMx509CRLBlock              = "X509 CRL"        // pem block header for CRL
-	DefaultKeySizeBytes   int    = 2048              // default key size in bytes
-	DefaultExpireYears           = 99                // default expire time for certs
+	PEMx509CRLBlock     string = "X509 CRL" // pem block header for CRL
+	DefaultKeySizeBytes int    = 2048       // default key size in bytes
+	DefaultExpireYears         = 1          // default expire time for certs
 )
 
-// PKI struct holder
+// PKI is a main struct for private key infrastructure
 type PKI struct {
-	Storage        KeyStorage
+	storage        KeyStorage
 	serialProvider SerialProvider
 	crlHolder      CRLHolder
 	subjTemplate   pkix.Name
@@ -35,18 +33,19 @@ type PKI struct {
 
 // NewPKI PKI struct "constructor"
 func NewPKI(storage KeyStorage, sp SerialProvider, crlHolder CRLHolder, subjTemplate pkix.Name) *PKI {
-	return &PKI{Storage: storage, serialProvider: sp, crlHolder: crlHolder, subjTemplate: subjTemplate}
+	return &PKI{storage: storage, serialProvider: sp, crlHolder: crlHolder, subjTemplate: subjTemplate}
 }
 
-// Init default pki with file storages
-func InitPKI(pkiDir string, subjTemplate *pkix.Name) (*PKI, error) {
-	if subjTemplate == nil {
-		subjTemplate = &pkix.Name{}
+// InitPKI initialize default pki with default file storages
+// defaultVars will be used for constructing every certificate as a template
+func InitPKI(pkiDir string, defaultVars *pkix.Name) (*PKI, error) {
+	if defaultVars == nil {
+		defaultVars = &pkix.Name{}
 	}
 	pki := NewPKI(fsStorage.NewDirKeyStorage(pkiDir),
 		fsStorage.NewFileSerialProvider(path.Join(pkiDir, "serial")),
 		fsStorage.NewFileCRLHolder(path.Join(pkiDir, "crl.pem")),
-		*subjTemplate)
+		*defaultVars)
 
 	if _, err := os.Stat(pkiDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(pkiDir, 0750); err != nil {
@@ -56,16 +55,56 @@ func InitPKI(pkiDir string, subjTemplate *pkix.Name) (*PKI, error) {
 	return pki, nil
 }
 
-// NewCa creating new version self signed CA pair
-func (p *PKI) NewCa(opts ...Option) (*pair.X509Pair, error) {
-	key, err := rsa.GenerateKey(rand.Reader, DefaultKeySizeBytes)
-	if err != nil {
-		return nil, fmt.Errorf("can`t generate key: %w", err)
+// NewCa create new version self-signed CA pair
+// opts are functional parameters that will be applied on the template before cert creating
+func (p *PKI) NewCa(keySizeBytes int, opts ...CertificateOption) (*pair.X509Pair, error) {
+	opts = append([]CertificateOption{CA(), CN("ca")}, opts...)
+	return p.NewCert(keySizeBytes, true, opts...)
+}
+
+func (p *PKI) NewClientCert(name string, keySizeBytes int, opts ...CertificateOption) (*pair.X509Pair, error) {
+	opts = append([]CertificateOption{Client(), CN(name)}, opts...)
+	return p.NewCert(keySizeBytes, false, opts...)
+}
+
+func (p *PKI) NewServerCert(name string, keySizeBytes int, opts ...CertificateOption) (*pair.X509Pair, error) {
+	opts = append([]CertificateOption{Server(), CN(name)}, opts...)
+	return p.NewCert(keySizeBytes, false, opts...)
+}
+
+func (p *PKI) createRequest(privateKey any, opts ...RequestOption) (*x509.CertificateRequest, error) {
+	sigType := x509.UnknownSignatureAlgorithm
+	if privateKey, ok := privateKey.(*rsa.PrivateKey); ok {
+		keySize := privateKey.N.BitLen()
+		switch {
+		case keySize >= 4096:
+			sigType = x509.SHA512WithRSA
+		case keySize >= 3072:
+			sigType = x509.SHA384WithRSA
+		default:
+			sigType = x509.SHA256WithRSA
+		}
 	}
 
-	subj := p.subjTemplate
-	subj.CommonName = "ca"
+	template := x509.CertificateRequest{
+		Subject:            p.subjTemplate,
+		SignatureAlgorithm: sigType,
+	}
+	applyRequestOptions(opts, &template)
 
+	request, err := x509.CreateCertificateRequest(rand.Reader, &template, privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("can't create request: %w", err)
+	}
+
+	certificateRequest, err := x509.ParseCertificateRequest(request)
+	if err != nil {
+		return nil, fmt.Errorf("can't parse request: %w", err)
+	}
+	return certificateRequest, nil
+}
+
+func (p *PKI) createCert(private any, request *x509.CertificateRequest, parent *x509.Certificate, options ...CertificateOption) (*x509.Certificate, error) {
 	serial, err := p.serialProvider.Next()
 	if err != nil {
 		return nil, fmt.Errorf("can`t get next serial: %w", err)
@@ -73,109 +112,79 @@ func (p *PKI) NewCa(opts ...Option) (*pair.X509Pair, error) {
 
 	now := time.Now()
 
-	template := x509.Certificate{
+	template := &x509.Certificate{
+		Subject:               request.Subject,
+		PublicKeyAlgorithm:    request.PublicKeyAlgorithm,
+		PublicKey:             request.PublicKey,
+		SignatureAlgorithm:    request.SignatureAlgorithm,
 		SerialNumber:          serial,
-		Subject:               subj,
 		NotBefore:             now.Add(-10 * time.Minute).UTC(),
 		NotAfter:              now.Add(time.Duration(24*365*DefaultExpireYears) * time.Hour).UTC(),
 		BasicConstraintsValid: true,
-		IsCA:                  true,
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 	}
 
-	Apply(opts, &template)
+	applyCertOptions(options, template)
 
-	certificate, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
-	if err != nil {
-		return nil, fmt.Errorf("can`t create cert: %w", err)
+	if parent == nil {
+		parent = template
 	}
 
-	res := pair.NewX509Pair(
-		pem.EncodeToMemory(&pem.Block{
-			Type:  PEMRSAPrivateKeyBlock,
-			Bytes: x509.MarshalPKCS1PrivateKey(key),
-		}),
-		pem.EncodeToMemory(&pem.Block{
-			Type:  PEMCertificateBlock,
-			Bytes: certificate,
-		}),
-		"ca",
-		serial)
-	err = p.Storage.Put(res)
-	if err != nil {
-		return nil, fmt.Errorf("can't put generated cert into storage: %w", err)
-	}
-	return res, nil
-}
-
-// NewCert generate new pair signed by last CA key
-func (p *PKI) NewCert(cn string, opts ...Option) (*pair.X509Pair, error) {
-	caPair, err := p.GetLastCA()
-	if err != nil {
-		return nil, fmt.Errorf("can`t get ca pair: %w", err)
-	}
-	caKey, caCert, err := caPair.Decode()
-	if err != nil {
-		return nil, fmt.Errorf("can`t parse ca pair: %w", err)
+	if template.Subject.CommonName == "" {
+		return nil, errors.New("certificate CN is obligatory")
 	}
 
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, fmt.Errorf("can`t create private key: %w", err)
-	}
-
-	serial, err := p.serialProvider.Next()
-	if err != nil {
-		return nil, err
-	}
-
-	val, err := asn1.Marshal(asn1.BitString{Bytes: []byte{0x80}, BitLength: 2}) // setting nsCertType to Client Type
-	if err != nil {
-		return nil, fmt.Errorf("can not marshal nsCertType: %w", err)
-	}
-
-	now := time.Now()
-	subj := p.subjTemplate
-	subj.CommonName = cn
-	tmpl := x509.Certificate{
-		NotBefore:             now.Add(-10 * time.Minute).UTC(),
-		NotAfter:              now.Add(time.Duration(24*365*DefaultExpireYears) * time.Hour).UTC(),
-		SerialNumber:          serial,
-		Subject:               subj,
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyAgreement,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		BasicConstraintsValid: true,
-		ExtraExtensions: []pkix.Extension{
-			{
-				Id:    asn1.ObjectIdentifier{2, 16, 840, 1, 113730, 1, 1},
-				Value: val,
-			},
-		},
-	}
-
-	Apply(opts, &tmpl)
-
-	// Sign with CA's private key
-	cert, err := x509.CreateCertificate(rand.Reader, &tmpl, caCert, &key.PublicKey, caKey)
+	certDER, err := x509.CreateCertificate(rand.Reader, template, parent, request.PublicKey, private)
 	if err != nil {
 		return nil, fmt.Errorf("certificate cannot be created: %w", err)
 	}
-
-	priKeyPem := pem.EncodeToMemory(&pem.Block{
-		Type:  PEMRSAPrivateKeyBlock,
-		Bytes: x509.MarshalPKCS1PrivateKey(key),
-	})
-
-	certPem := pem.EncodeToMemory(&pem.Block{
-		Type:  PEMCertificateBlock,
-		Bytes: cert,
-	})
-
-	res := pair.NewX509Pair(priKeyPem, certPem, cn, serial)
-
-	err = p.Storage.Put(res)
+	cert, err := x509.ParseCertificate(certDER)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("certificate cannot be parsed: %w", err)
+	}
+	return cert, nil
+}
+
+// NewCert generate new pair signed by last CA key
+func (p *PKI) NewCert(keySizeBytes int, selfsigned bool, opts ...CertificateOption) (*pair.X509Pair, error) {
+	if keySizeBytes == 0 {
+		keySizeBytes = DefaultKeySizeBytes
+	}
+	certKey, err := rsa.GenerateKey(rand.Reader, DefaultKeySizeBytes)
+	if err != nil {
+		return nil, fmt.Errorf("can`t generate key: %w", err)
+	}
+
+	request, err := p.createRequest(certKey)
+	if err != nil {
+		return nil, fmt.Errorf("can`t generate request for ca cert: %w", err)
+	}
+
+	var caKey *rsa.PrivateKey
+	var caCert *x509.Certificate
+	if selfsigned {
+		caKey = certKey
+		caCert = nil
+	} else {
+		caPair, err := p.GetLastCA()
+		if err != nil {
+			return nil, fmt.Errorf("can`t get ca pair: %w", err)
+		}
+		caKey, caCert, err = caPair.Decode()
+		if err != nil {
+			return nil, fmt.Errorf("can`t parse ca pair: %w", err)
+		}
+	}
+
+	cert, err := p.createCert(caKey, request, caCert, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("can`t create ca cert: %w", err)
+	}
+
+	res := pair.NewX509Pair(certKey, cert)
+
+	err = p.storage.Put(res)
+	if err != nil {
+		return nil, fmt.Errorf("can't put generated cert into storage: %w", err)
 	}
 	return res, nil
 }
@@ -187,7 +196,7 @@ func (p *PKI) GetCRL() (*pkix.CertificateList, error) {
 
 // GetLastCA return last CA pair
 func (p *PKI) GetLastCA() (*pair.X509Pair, error) {
-	return p.Storage.GetLastByCn("ca")
+	return p.storage.GetLastByCn("ca")
 }
 
 // RevokeOne revoke one pair with serial
@@ -196,12 +205,12 @@ func (p *PKI) RevokeOne(serial *big.Int) error {
 	if oldList, err := p.GetCRL(); err == nil {
 		list = oldList.TBSCertList.RevokedCertificates
 	}
-	caPairs, err := p.Storage.GetByCN("ca")
+	caPairs, err := p.storage.GetByCN("ca")
 	if err != nil {
 		return fmt.Errorf("can`t get ca certs for signing crl: %w", err)
 	}
 	sort.Slice(caPairs, func(i, j int) bool {
-		return caPairs[i].Serial.Cmp(caPairs[j].Serial) == 1
+		return caPairs[i].Serial().Cmp(caPairs[j].Serial()) == 1
 	})
 	caKey, caCert, err := caPairs[0].Decode()
 	if err != nil {
@@ -229,12 +238,12 @@ func (p *PKI) RevokeOne(serial *big.Int) error {
 
 // RevokeAllByCN revoke all pairs with common name
 func (p *PKI) RevokeAllByCN(cn string) error {
-	pairs, err := p.Storage.GetByCN(cn)
+	pairs, err := p.storage.GetByCN(cn)
 	if err != nil {
 		return fmt.Errorf("can`t get pairs for revoke: %w", err)
 	}
 	for _, certPair := range pairs {
-		err := p.RevokeOne(certPair.Serial)
+		err := p.RevokeOne(certPair.Serial())
 		if err != nil {
 			return fmt.Errorf("can`t revoke: %w", err)
 		}

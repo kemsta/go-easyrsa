@@ -43,12 +43,7 @@ func TestDirKeyStorage_makePath(t *testing.T) {
 				keydir: filepath.Join(getTestDir(), "dir_keystorage"),
 			},
 			args: args{
-				pair: &pair.X509Pair{
-					KeyPemBytes:  nil,
-					CertPemBytes: nil,
-					CN:           "",
-					Serial:       big.NewInt(66),
-				},
+				pair: pair.ImportX509(nil, nil, "", big.NewInt(66)),
 			},
 			wantCertPath: "",
 			wantKeyPath:  "",
@@ -60,12 +55,7 @@ func TestDirKeyStorage_makePath(t *testing.T) {
 				keydir: filepath.Join(getTestDir(), "dir_keystorage"),
 			},
 			args: args{
-				pair: &pair.X509Pair{
-					KeyPemBytes:  nil,
-					CertPemBytes: nil,
-					CN:           "good_cert",
-					Serial:       nil,
-				},
+				pair: pair.ImportX509(nil, nil, "good_cert", nil),
 			},
 			wantCertPath: "",
 			wantKeyPath:  "",
@@ -77,12 +67,7 @@ func TestDirKeyStorage_makePath(t *testing.T) {
 				keydir: filepath.Join(getTestDir(), "dir_keystorage"),
 			},
 			args: args{
-				pair: &pair.X509Pair{
-					KeyPemBytes:  nil,
-					CertPemBytes: nil,
-					CN:           "bad_path",
-					Serial:       big.NewInt(66),
-				},
+				pair: pair.ImportX509(nil, nil, "bad_path", big.NewInt(66)),
 			},
 			wantCertPath: "",
 			wantKeyPath:  "",
@@ -94,12 +79,7 @@ func TestDirKeyStorage_makePath(t *testing.T) {
 				keydir: filepath.Join(getTestDir(), "dir_keystorage"),
 			},
 			args: args{
-				pair: &pair.X509Pair{
-					KeyPemBytes:  nil,
-					CertPemBytes: nil,
-					CN:           "good_cert",
-					Serial:       big.NewInt(66),
-				},
+				pair: pair.ImportX509(nil, nil, "good_cert", big.NewInt(66)),
 			},
 			wantCertPath: filepath.Join(getTestDir(), "dir_keystorage", "good_cert/42.crt"),
 			wantKeyPath:  filepath.Join(getTestDir(), "dir_keystorage", "good_cert/42.key"),
@@ -145,12 +125,7 @@ func TestDirKeyStorage_Put(t *testing.T) {
 				keydir: filepath.Join(getTestDir(), "dir_keystorage"),
 			},
 			args: args{
-				pair: &pair.X509Pair{
-					KeyPemBytes:  nil,
-					CertPemBytes: nil,
-					CN:           "bad_path",
-					Serial:       big.NewInt(66),
-				},
+				pair: pair.ImportX509(nil, nil, "bad_path", big.NewInt(66)),
 			},
 			wantErr: true,
 		},
@@ -160,12 +135,7 @@ func TestDirKeyStorage_Put(t *testing.T) {
 				keydir: filepath.Join(getTestDir(), "dir_keystorage"),
 			},
 			args: args{
-				pair: &pair.X509Pair{
-					KeyPemBytes:  []byte("keybytes"),
-					CertPemBytes: []byte("certbytes"),
-					CN:           "good_cert",
-					Serial:       big.NewInt(66),
-				},
+				pair: pair.ImportX509([]byte("keybytes"), []byte("certbytes"), "good_cert", big.NewInt(66)),
 			},
 			wantErr: false,
 		},
@@ -175,12 +145,7 @@ func TestDirKeyStorage_Put(t *testing.T) {
 				keydir: filepath.Join(getTestDir(), "dir_keystorage"),
 			},
 			args: args{
-				pair: &pair.X509Pair{
-					KeyPemBytes:  nil,
-					CertPemBytes: nil,
-					CN:           "bad_cert",
-					Serial:       big.NewInt(66),
-				},
+				pair: pair.ImportX509(nil, nil, "bad_cert", big.NewInt(66)),
 			},
 			wantErr: true,
 		},
@@ -190,12 +155,7 @@ func TestDirKeyStorage_Put(t *testing.T) {
 				keydir: filepath.Join(getTestDir(), "dir_keystorage"),
 			},
 			args: args{
-				pair: &pair.X509Pair{
-					KeyPemBytes:  nil,
-					CertPemBytes: nil,
-					CN:           "bad_key",
-					Serial:       big.NewInt(66),
-				},
+				pair: pair.ImportX509(nil, nil, "bad_key", big.NewInt(66)),
 			},
 			wantErr: true,
 		},
@@ -312,7 +272,7 @@ func TestDirKeyStorage_GetByCN(t *testing.T) {
 			args: args{
 				cn: "good_cert",
 			},
-			want:    []*pair.X509Pair{pair.NewX509Pair([]byte("keybytes"), []byte("certbytes"), "good_cert", big.NewInt(66))},
+			want:    []*pair.X509Pair{pair.ImportX509([]byte("keybytes"), []byte("certbytes"), "good_cert", big.NewInt(66))},
 			wantErr: false,
 		},
 	}
@@ -355,7 +315,7 @@ func TestDirKeyStorage_GetBySerial(t *testing.T) {
 			args: args{
 				serial: big.NewInt(66),
 			},
-			want:    pair.NewX509Pair([]byte("keybytes"), []byte("certbytes"), "good_cert", big.NewInt(66)),
+			want:    pair.ImportX509([]byte("keybytes"), []byte("certbytes"), "good_cert", big.NewInt(66)),
 			wantErr: false,
 		},
 	}
@@ -598,9 +558,9 @@ func TestDirKeyStorage_GetAll(t *testing.T) {
 		assert.Empty(t, all)
 	})
 	t.Run("good stor", func(t *testing.T) {
-		_ = stor.Put(pair.NewX509Pair([]byte("keybytes"), []byte("certbytes"), "good_cert", big.NewInt(66)))
-		_ = stor.Put(pair.NewX509Pair([]byte("keybytes"), []byte("certbytes"), "good_cert", big.NewInt(65)))
-		_ = stor.Put(pair.NewX509Pair([]byte("keybytes"), []byte("certbytes"), "another_cert", big.NewInt(64)))
+		_ = stor.Put(pair.ImportX509([]byte("keybytes"), []byte("certbytes"), "good_cert", big.NewInt(66)))
+		_ = stor.Put(pair.ImportX509([]byte("keybytes"), []byte("certbytes"), "good_cert", big.NewInt(65)))
+		_ = stor.Put(pair.ImportX509([]byte("keybytes"), []byte("certbytes"), "another_cert", big.NewInt(64)))
 		all, err := stor.GetAll()
 		assert.NoError(t, err)
 		assert.NotNil(t, all)

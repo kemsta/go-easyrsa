@@ -20,27 +20,27 @@ func TestPki_NewCa(t *testing.T) {
 	pki, cleanup := getTmpPki()
 	defer cleanup()
 	t.Run("create ca and write", func(t *testing.T) {
-		got, err := pki.NewCa()
+		got, err := pki.NewCa(2048)
 		assert.NoError(t, err)
 		assert.NotNil(t, got)
-		assert.NotEmpty(t, got.CertPemBytes)
-		assert.NotEmpty(t, got.KeyPemBytes)
+		assert.NotEmpty(t, got.CertPemBytes())
+		assert.NotEmpty(t, got.KeyPemBytes())
 	})
 	t.Run("get ca by cn", func(t *testing.T) {
-		got, err := pki.Storage.GetByCN("ca")
+		got, err := pki.storage.GetByCN("ca")
 		assert.NoError(t, err)
 		assert.NotNil(t, got)
 		assert.Len(t, got, 1)
 	})
 	t.Run("get ca by serial", func(t *testing.T) {
-		got, err := pki.Storage.GetBySerial(big.NewInt(1))
+		got, err := pki.storage.GetBySerial(big.NewInt(1))
 		assert.NoError(t, err)
 		assert.NotNil(t, got)
-		assert.NotEmpty(t, got.CertPemBytes)
-		assert.NotEmpty(t, got.KeyPemBytes)
+		assert.NotEmpty(t, got.CertPemBytes())
+		assert.NotEmpty(t, got.KeyPemBytes())
 	})
 	t.Run("decode ca", func(t *testing.T) {
-		ca, _ := pki.Storage.GetByCN("ca")
+		ca, _ := pki.storage.GetByCN("ca")
 		key, cert, err := ca[0].Decode()
 		assert.NoError(t, err)
 		assert.NotNil(t, key)
@@ -54,29 +54,29 @@ func TestPki_NewCa(t *testing.T) {
 func TestPKI_newCert(t *testing.T) {
 	pki, cleanup := getTmpPki()
 	defer cleanup()
-	_, _ = pki.NewCa()
+	_, _ = pki.NewCa(2048)
 	t.Run("create server cert and write", func(t *testing.T) {
-		got, err := pki.NewCert("server", Server())
+		got, err := pki.NewServerCert("server", 2048)
 		assert.NoError(t, err)
 		assert.NotNil(t, got)
-		assert.NotEmpty(t, got.CertPemBytes)
-		assert.NotEmpty(t, got.KeyPemBytes)
+		assert.NotEmpty(t, got.CertPemBytes())
+		assert.NotEmpty(t, got.KeyPemBytes())
 	})
 	t.Run("get cert by cn", func(t *testing.T) {
-		got, err := pki.Storage.GetByCN("server")
+		got, err := pki.storage.GetByCN("server")
 		assert.NoError(t, err)
 		assert.NotNil(t, got)
 		assert.Len(t, got, 1)
 	})
 	t.Run("get cert by serial", func(t *testing.T) {
-		got, err := pki.Storage.GetBySerial(big.NewInt(2))
+		got, err := pki.storage.GetBySerial(big.NewInt(2))
 		assert.NoError(t, err)
 		assert.NotNil(t, got)
-		assert.NotEmpty(t, got.CertPemBytes)
-		assert.NotEmpty(t, got.KeyPemBytes)
+		assert.NotEmpty(t, got.CertPemBytes())
+		assert.NotEmpty(t, got.KeyPemBytes())
 	})
 	t.Run("decode cert", func(t *testing.T) {
-		ca, _ := pki.Storage.GetByCN("server")
+		ca, _ := pki.storage.GetByCN("server")
 		key, cert, err := ca[0].Decode()
 		assert.NoError(t, err)
 		assert.NotNil(t, key)
@@ -116,10 +116,10 @@ func TestPKI_getCRL(t *testing.T) {
 func TestPKI_RevokeOne(t *testing.T) {
 	pki, cleanup := getTmpPki()
 	defer cleanup()
-	_, _ = pki.NewCa()
-	_, _ = pki.NewCert("server", Server())
-	_, _ = pki.NewCert("server", Server())
-	_, _ = pki.NewCert("cert")
+	_, _ = pki.NewCa(2048)
+	_, _ = pki.NewServerCert("server", 2048)
+	_, _ = pki.NewServerCert("server", 2048)
+	_, _ = pki.NewClientCert("client", 2048)
 	t.Run("revoke", func(t *testing.T) {
 		err := pki.RevokeOne(big.NewInt(300))
 		assert.NoError(t, err)
@@ -131,10 +131,10 @@ func TestPKI_RevokeOne(t *testing.T) {
 func TestPKI_IsRevoked(t *testing.T) {
 	pki, cleanup := getTmpPki()
 	defer cleanup()
-	_, _ = pki.NewCa()
-	_, _ = pki.NewCert("server", Server())
-	_, _ = pki.NewCert("server", Server())
-	_, _ = pki.NewCert("cert")
+	_, _ = pki.NewCa(2048)
+	_, _ = pki.NewServerCert("server", 2048)
+	_, _ = pki.NewServerCert("server", 2048)
+	_, _ = pki.NewClientCert("client", 2048)
 	t.Run("revoke", func(t *testing.T) {
 		err := pki.RevokeOne(big.NewInt(4))
 		assert.NoError(t, err)
@@ -147,10 +147,10 @@ func TestPKI_IsRevoked(t *testing.T) {
 func TestPKI_RevokeAllByCN(t *testing.T) {
 	pki, cleanup := getTmpPki()
 	defer cleanup()
-	_, _ = pki.NewCa()
-	_, _ = pki.NewCert("server", Server())
-	_, _ = pki.NewCert("server", Server())
-	_, _ = pki.NewCert("cert")
+	_, _ = pki.NewCa(2048)
+	_, _ = pki.NewServerCert("server", 2048)
+	_, _ = pki.NewServerCert("server", 2048)
+	_, _ = pki.NewClientCert("client", 2048)
 	t.Run("revoke", func(t *testing.T) {
 		err := pki.RevokeAllByCN("server")
 		assert.NoError(t, err)
@@ -169,23 +169,23 @@ func TestPKI_GetLastCA(t *testing.T) {
 		assert.Nil(t, pair)
 	})
 	t.Run("one ca", func(t *testing.T) {
-		_, _ = pki.NewCa()
+		_, _ = pki.NewCa(2048)
 		pair, err := pki.GetLastCA()
 		assert.NoError(t, err)
 		assert.NotNil(t, pair)
-		assert.Equal(t, pair.CN, "ca")
-		assert.Equal(t, pair.Serial, big.NewInt(1))
+		assert.Equal(t, pair.CN(), "ca")
+		assert.Equal(t, pair.Serial(), big.NewInt(1))
 	})
 	t.Run("5 ca", func(t *testing.T) {
-		_, _ = pki.NewCa()
-		_, _ = pki.NewCa()
-		_, _ = pki.NewCa()
-		_, _ = pki.NewCa()
+		_, _ = pki.NewCa(2048)
+		_, _ = pki.NewCa(2048)
+		_, _ = pki.NewCa(2048)
+		_, _ = pki.NewCa(2048)
 		pair, err := pki.GetLastCA()
 		assert.NoError(t, err)
 		assert.NotNil(t, pair)
-		assert.Equal(t, pair.CN, "ca")
-		assert.Equal(t, pair.Serial, big.NewInt(5))
+		assert.Equal(t, pair.CN(), "ca")
+		assert.Equal(t, pair.Serial(), big.NewInt(5))
 	})
 }
 
@@ -209,7 +209,7 @@ func TestInitPKI(t *testing.T) {
 				pkiDir: "test/def_pki",
 			},
 			want: &PKI{
-				Storage:        fsStorage.NewDirKeyStorage(pkiDir),
+				storage:        fsStorage.NewDirKeyStorage(pkiDir),
 				serialProvider: fsStorage.NewFileSerialProvider(path.Join(pkiDir, "serial")),
 				crlHolder:      fsStorage.NewFileCRLHolder(path.Join(pkiDir, "crl.pem")),
 				subjTemplate:   pkix.Name{},
