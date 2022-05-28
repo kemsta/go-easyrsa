@@ -8,7 +8,7 @@ import (
 
 // Key storage interface
 type KeyStorage interface {
-	Put(pair *pair.X509Pair) error                       // Put new pair to Storage. Overwrite if already exist.
+	Put(pair *pair.X509Pair) error                       // Put new pair to KeyStorage. Overwrite if already exist.
 	GetByCN(cn string) ([]*pair.X509Pair, error)         // Get all keypairs by CN.
 	GetLastByCn(cn string) (*pair.X509Pair, error)       // Get last pair by CN.
 	GetBySerial(serial *big.Int) (*pair.X509Pair, error) // Get one keypair by serial.
