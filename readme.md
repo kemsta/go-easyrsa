@@ -1,5 +1,5 @@
 # EasyRsa
-[![Build Status](https://github.com/kemsta/go-easyrsa/actions/workflows/test/badge.svg)](https://github.com/kemsta/go-easyrsa/actions/workflows/test)
+[![Build Status](https://github.com/kemsta/go-easyrsa/actions/workflows/test.yml/badge.svg?branch=master)](https://github.com/kemsta/go-easyrsa/actions/workflows/test.yml)
 [![Coverage Status](https://coveralls.io/repos/github/kemsta/go-easyrsa/badge.svg?branch=master)](https://coveralls.io/github/kemsta/go-easyrsa?branch=master)
 [![GoDoc](https://godoc.org/github.com/kemsta/go-easyrsa?status.svg)](https://godoc.org/github.com/kemsta/go-easyrsa)
 

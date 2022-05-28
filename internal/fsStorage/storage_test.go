@@ -3,12 +3,15 @@ package fsStorage
 import (
 	"bytes"
 	"crypto/x509/pkix"
+	"fmt"
 	"github.com/kemsta/go-easyrsa/pkg/pair"
+	"io"
 	"io/ioutil"
 	"math/big"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -508,7 +511,7 @@ func TestFileCRLHolder_Put(t *testing.T) {
 		fileName := filepath.Join(getTestDir(), "dir_keystorage", "exist.pem")
 		content := []byte("content")
 		defer func() {
-			_ = ioutil.WriteFile(fileName, []byte("asd"), 0666)
+			_ = ioutil.WriteFile(fileName, []byte("asd"), 0644)
 		}()
 		h := NewFileCRLHolder(fileName)
 		err := h.Put(content)
@@ -618,4 +621,54 @@ func TestDirKeyStorage_GetLastByCn(t *testing.T) {
 		assert.Error(t, err)
 		assert.Nil(t, all)
 	})
+}
+
+func Test_writeFileAtomic(t *testing.T) {
+	path := filepath.Join(getTestDir(), "dir_keystorage")
+	type args struct {
+		path string
+		r    io.Reader
+		mode os.FileMode
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{
+			name: "not_exist",
+			args: args{
+				path: filepath.Join(path, "bad_key/not_exist"),
+				r:    strings.NewReader("test"),
+				mode: 0644,
+			},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "exist",
+			args: args{
+				path: filepath.Join(path, "bad_key/42.crt"),
+				r:    strings.NewReader("test"),
+				mode: 0644,
+			},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "dir",
+			args: args{
+				path: filepath.Join(path, "bad_key/42.key"),
+				r:    strings.NewReader("test"),
+				mode: 0644,
+			},
+			wantErr: assert.Error,
+		},
+	}
+	defer func(name string) {
+		_ = os.Remove(name)
+	}(filepath.Join(path, "bad_key/not_exist"))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.wantErr(t, writeFileAtomic(tt.args.path, tt.args.r, tt.args.mode), fmt.Sprintf("writeFileAtomic(%v, %v, %v)", tt.args.path, tt.args.r, tt.args.mode))
+		})
+	}
 }
