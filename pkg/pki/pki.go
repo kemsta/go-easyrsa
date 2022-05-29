@@ -149,7 +149,7 @@ func (p *PKI) NewCert(keySizeBytes int, selfsigned bool, opts ...CertificateOpti
 	if keySizeBytes == 0 {
 		keySizeBytes = DefaultKeySizeBytes
 	}
-	certKey, err := rsa.GenerateKey(rand.Reader, DefaultKeySizeBytes)
+	certKey, err := rsa.GenerateKey(rand.Reader, keySizeBytes)
 	if err != nil {
 		return nil, fmt.Errorf("can`t generate key: %w", err)
 	}

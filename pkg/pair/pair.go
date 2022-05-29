@@ -10,7 +10,7 @@ import (
 
 const (
 	PEMCertificateBlock   string = "CERTIFICATE"     // pem block header for x509.Certificate
-	PEMRSAPrivateKeyBlock        = "RSA PRIVATE KEY" // pem block header for rsa.PrivateKey
+	PEMRSAPrivateKeyBlock string = "RSA PRIVATE KEY" // pem block header for rsa.PrivateKey
 )
 
 // X509Pair represent pair cert and key
