@@ -8,8 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gofrs/flock"
+	"github.com/kemsta/go-easyrsa/internal/utils"
 	"github.com/kemsta/go-easyrsa/pkg/pair"
-	"io"
 	"io/ioutil"
 	"math/big"
 	"os"
@@ -50,7 +50,7 @@ func (h *FileCRLHolder) Put(content []byte) error {
 	defer func() {
 		_ = h.locker.Unlock()
 	}()
-	if err = writeFileAtomic(h.path, bytes.NewReader(content), 0644); err != nil {
+	if err = utils.WriteFileAtomic(h.path, bytes.NewReader(content), 0644); err != nil {
 		return fmt.Errorf("can't overwrite crl file %s with new content: %w", h.path, err)
 	}
 
@@ -113,7 +113,7 @@ func (p *FileSerialProvider) Next() (*big.Int, error) {
 	}
 	res.Add(big.NewInt(1), res)
 
-	if err := writeFileAtomic(p.path, strings.NewReader(res.Text(16)), 0644); err != nil {
+	if err := utils.WriteFileAtomic(p.path, strings.NewReader(res.Text(16)), 0644); err != nil {
 		return res, fmt.Errorf("can`t write cert %v: %w", p.path, err)
 	}
 
@@ -142,12 +142,12 @@ func (s *DirKeyStorage) Put(pair *pair.X509Pair) error {
 	if err != nil {
 		return fmt.Errorf("can`t make path %v: %w", pair, err)
 	}
-	if err := writeFileAtomic(certPath, bytes.NewReader(pair.CertPemBytes()), 0644); err != nil {
+	if err := utils.WriteFileAtomic(certPath, bytes.NewReader(pair.CertPemBytes()), 0644); err != nil {
 		return fmt.Errorf("can`t write cert %v: %w", certPath, err)
 	}
 
-	if err := writeFileAtomic(keyPath, bytes.NewReader(pair.KeyPemBytes()), 0644); err != nil {
-		return fmt.Errorf("can`t write cert %v: %w", certPath, err)
+	if err := utils.WriteFileAtomic(keyPath, bytes.NewReader(pair.KeyPemBytes()), 0644); err != nil {
+		return fmt.Errorf("can`t write key %v: %w", keyPath, err)
 	}
 	return nil
 }
@@ -301,37 +301,4 @@ func (s *DirKeyStorage) makePath(pair *pair.X509Pair) (certPath, keyPath string,
 	}
 	return filepath.Join(basePath, fmt.Sprintf("%s.crt", pair.Serial().Text(16))),
 		filepath.Join(basePath, fmt.Sprintf("%s.key", pair.Serial().Text(16))), nil
-}
-
-func writeFileAtomic(path string, r io.Reader, mode os.FileMode) error {
-	dir, file := filepath.Split(path)
-	if dir == "" {
-		dir = "."
-	}
-	fd, err := ioutil.TempFile(dir, file)
-	if err != nil {
-		return fmt.Errorf("cannot create temp file: %w", err)
-	}
-	defer func() {
-		_ = os.Remove(fd.Name())
-	}()
-	defer func(fd *os.File) {
-		_ = fd.Close()
-	}(fd)
-	if _, err := io.Copy(fd, r); err != nil {
-		return fmt.Errorf("cannot write data to tempfile %q: %w", fd.Name(), err)
-	}
-	if err := fd.Sync(); err != nil {
-		return fmt.Errorf("can't flush tempfile %q: %v", fd.Name(), err)
-	}
-	if err := fd.Close(); err != nil {
-		return fmt.Errorf("can't close tempfile %q: %v", fd.Name(), err)
-	}
-	if err := os.Chmod(fd.Name(), mode); err != nil {
-		return fmt.Errorf("can't set filemode on tempfile %q: %w", fd.Name(), err)
-	}
-	if err := os.Rename(fd.Name(), path); err != nil {
-		return fmt.Errorf("cannot replace %q with tempfile %q: %w", path, fd.Name(), err)
-	}
-	return nil
 }
