@@ -5,16 +5,16 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/asn1"
 	"encoding/pem"
 	"fmt"
-	"github.com/kemsta/go-easyrsa/internal/fsStorage"
-	"github.com/kemsta/go-easyrsa/pkg/pair"
 	"math/big"
 	"os"
 	"path"
 	"sort"
 	"time"
+
+	"github.com/kemsta/go-easyrsa/internal/fsStorage"
+	"github.com/kemsta/go-easyrsa/pkg/pair"
 )
 
 const (
@@ -129,11 +129,6 @@ func (p *PKI) NewCert(cn string, opts ...Option) (*pair.X509Pair, error) {
 		return nil, err
 	}
 
-	val, err := asn1.Marshal(asn1.BitString{Bytes: []byte{0x80}, BitLength: 2}) // setting nsCertType to Client Type
-	if err != nil {
-		return nil, fmt.Errorf("can not marshal nsCertType: %w", err)
-	}
-
 	now := time.Now()
 	subj := p.subjTemplate
 	subj.CommonName = cn
@@ -142,15 +137,7 @@ func (p *PKI) NewCert(cn string, opts ...Option) (*pair.X509Pair, error) {
 		NotAfter:              now.Add(time.Duration(24*365*DefaultExpireYears) * time.Hour).UTC(),
 		SerialNumber:          serial,
 		Subject:               subj,
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyAgreement,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		BasicConstraintsValid: true,
-		ExtraExtensions: []pkix.Extension{
-			{
-				Id:    asn1.ObjectIdentifier{2, 16, 840, 1, 113730, 1, 1},
-				Value: val,
-			},
-		},
 	}
 
 	Apply(opts, &tmpl)
