@@ -144,6 +144,32 @@ func TestServer(t *testing.T) {
 	}
 }
 
+func TestClient(t *testing.T) {
+	want := &x509.Certificate{}
+	want.KeyUsage = x509.KeyUsageDigitalSignature | x509.KeyUsageKeyAgreement
+	want.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
+	val, _ := asn1.Marshal(asn1.BitString{Bytes: []byte{0x80}, BitLength: 2}) // setting nsCertType to Client Type
+	want.ExtraExtensions = []pkix.Extension{}
+	want.ExtraExtensions = append(want.ExtraExtensions, pkix.Extension{Id: asn1.ObjectIdentifier{2, 16, 840, 1, 113730, 1, 1}, Value: val})
+	tests := []struct {
+		name string
+		want *x509.Certificate
+	}{
+		{
+			name: "changed",
+			want: want,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cert := &x509.Certificate{}
+			if Client()(cert); !reflect.DeepEqual(cert, tt.want) {
+				t.Errorf("Client() = %v, want %v", cert, tt.want)
+			}
+		})
+	}
+}
+
 func TestNotAfter(t *testing.T) {
 	type args struct {
 		time time.Time

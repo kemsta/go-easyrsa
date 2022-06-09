@@ -65,7 +65,7 @@ var buildKey = &cobra.Command{
 	Short: "build client cert/key",
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		_, err := pkiI.NewCert(args[0])
+		_, err := pkiI.NewCert(args[0], pki.Client())
 		if err != nil {
 			fmt.Println(fmt.Errorf("can`t build client pair: %s", err))
 		}
