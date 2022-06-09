@@ -1,6 +1,7 @@
 package fsStorage
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -8,12 +9,14 @@ import (
 	"fmt"
 	"github.com/gofrs/flock"
 	"github.com/kemsta/go-easyrsa/pkg/pair"
+	"io"
 	"io/ioutil"
 	"math/big"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -39,7 +42,7 @@ func (h *FileCRLHolder) Put(content []byte) error {
 	defer cancel()
 	locked, err := h.locker.TryLockContext(ctx, LockPeriod)
 	if err != nil {
-		return fmt.Errorf("there's error with saving cert to storage: %w", err)
+		return fmt.Errorf("there's error with saving crl to storage: %w", err)
 	}
 	if !locked {
 		return fmt.Errorf("can`t lock serial file %v", h.path)
@@ -47,10 +50,10 @@ func (h *FileCRLHolder) Put(content []byte) error {
 	defer func() {
 		_ = h.locker.Unlock()
 	}()
-	err = ioutil.WriteFile(h.path, content, 0666)
-	if err != nil {
-		return fmt.Errorf("can`t save new crl file %v: %w", h.path, err)
+	if err = writeFileAtomic(h.path, bytes.NewReader(content), 0644); err != nil {
+		return fmt.Errorf("can't overwrite crl file %s with new content: %w", h.path, err)
 	}
+
 	return nil
 }
 
@@ -66,13 +69,13 @@ func (h *FileCRLHolder) Get() (*pkix.CertificateList, error) {
 	if stat, err := os.Stat(h.path); err != nil || stat.Size() == 0 {
 		return &pkix.CertificateList{}, nil
 	}
-	bytes, err := ioutil.ReadFile(h.path)
+	fBytes, err := ioutil.ReadFile(h.path)
 	if err != nil {
 		return nil, fmt.Errorf("can`t read crl %v: %w", h.path, err)
 	}
-	list, err := x509.ParseCRL(bytes)
+	list, err := x509.ParseCRL(fBytes)
 	if err != nil {
-		return nil, fmt.Errorf("can`t parse crl \n %v: %w", string(bytes), err)
+		return nil, fmt.Errorf("can`t parse crl \n %v: %w", string(fBytes), err)
 	}
 	return list, nil
 }
@@ -89,7 +92,7 @@ func (p *FileSerialProvider) Next() (*big.Int, error) {
 	defer cancel()
 	locked, err := p.locker.TryLockContext(ctx, LockPeriod)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("can`t lock serial file %v: %w", p.path, err)
 	}
 	if !locked {
 		return nil, fmt.Errorf("can`t lock serial file %v", p.path)
@@ -98,30 +101,22 @@ func (p *FileSerialProvider) Next() (*big.Int, error) {
 		_ = p.locker.Unlock()
 	}()
 	res := big.NewInt(0)
-	file, err := os.OpenFile(p.path, os.O_RDWR|os.O_CREATE, 0666)
-	if err != nil {
-		return nil, fmt.Errorf("can`t open serial file %v: %w", p.path, err)
-	}
-	defer func() {
-		_ = file.Close()
-	}()
-	bytes, err := ioutil.ReadAll(file)
-	if err != nil {
+	sBytes, err := ioutil.ReadFile(p.path)
+	if os.IsNotExist(err) {
+		// nothing to do. New serial
+	} else if err != nil {
 		return nil, fmt.Errorf("can`t read serial file %v: %w", p.path, err)
 	}
-	if len(bytes) != 0 {
-		res.SetString(string(bytes), 16)
+
+	if len(sBytes) != 0 {
+		res.SetString(string(sBytes), 16)
 	}
 	res.Add(big.NewInt(1), res)
-	_ = file.Truncate(0)
-	_, err = file.Seek(0, 0)
-	if err != nil {
-		return nil, fmt.Errorf("can`t write serial file %v: %w", p.path, err)
+
+	if err := writeFileAtomic(p.path, strings.NewReader(res.Text(16)), 0644); err != nil {
+		return res, fmt.Errorf("can`t write cert %v: %w", p.path, err)
 	}
-	_, err = file.Write([]byte(res.Text(16)))
-	if err != nil {
-		return nil, fmt.Errorf("can`t write serial file %v: %w", p.path, err)
-	}
+
 	return res, nil
 }
 
@@ -132,7 +127,7 @@ func NewFileSerialProvider(path string) *FileSerialProvider {
 	}
 }
 
-// DirKeyStorage is a KeyStorage interface implementation with storing pairs on fs
+// DirKeyStorage is a Storage interface implementation with storing pairs on fs
 type DirKeyStorage struct {
 	keydir string
 }
@@ -147,13 +142,12 @@ func (s *DirKeyStorage) Put(pair *pair.X509Pair) error {
 	if err != nil {
 		return fmt.Errorf("can`t make path %v: %w", pair, err)
 	}
-	err = ioutil.WriteFile(certPath, pair.CertPemBytes, 0644)
-	if err != nil {
+	if err := writeFileAtomic(certPath, bytes.NewReader(pair.CertPemBytes), 0644); err != nil {
 		return fmt.Errorf("can`t write cert %v: %w", certPath, err)
 	}
-	err = ioutil.WriteFile(keyPath, pair.KeyPemBytes, 0600)
-	if err != nil {
-		return fmt.Errorf("can`t write key %v: %w", keyPath, err)
+
+	if err := writeFileAtomic(keyPath, bytes.NewReader(pair.KeyPemBytes), 0644); err != nil {
+		return fmt.Errorf("can`t write cert %v: %w", certPath, err)
 	}
 	return nil
 }
@@ -307,4 +301,37 @@ func (s *DirKeyStorage) makePath(pair *pair.X509Pair) (certPath, keyPath string,
 	}
 	return filepath.Join(basePath, fmt.Sprintf("%s.crt", pair.Serial.Text(16))),
 		filepath.Join(basePath, fmt.Sprintf("%s.key", pair.Serial.Text(16))), nil
+}
+
+func writeFileAtomic(path string, r io.Reader, mode os.FileMode) error {
+	dir, file := filepath.Split(path)
+	if dir == "" {
+		dir = "."
+	}
+	fd, err := ioutil.TempFile(dir, file)
+	if err != nil {
+		return fmt.Errorf("cannot create temp file: %w", err)
+	}
+	defer func() {
+		_ = os.Remove(fd.Name())
+	}()
+	defer func(fd *os.File) {
+		_ = fd.Close()
+	}(fd)
+	if _, err := io.Copy(fd, r); err != nil {
+		return fmt.Errorf("cannot write data to tempfile %q: %w", fd.Name(), err)
+	}
+	if err := fd.Sync(); err != nil {
+		return fmt.Errorf("can't flush tempfile %q: %v", fd.Name(), err)
+	}
+	if err := fd.Close(); err != nil {
+		return fmt.Errorf("can't close tempfile %q: %v", fd.Name(), err)
+	}
+	if err := os.Chmod(fd.Name(), mode); err != nil {
+		return fmt.Errorf("can't set filemode on tempfile %q: %w", fd.Name(), err)
+	}
+	if err := os.Rename(fd.Name(), path); err != nil {
+		return fmt.Errorf("cannot replace %q with tempfile %q: %w", path, fd.Name(), err)
+	}
+	return nil
 }
