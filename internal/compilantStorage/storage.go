@@ -20,7 +20,7 @@ const (
 	CertFileExtension = ".crt" // certificate file extension
 )
 
-//DirKeyStorage is easyrsa v3 compilant sotrage. It can be used as a drop-off replacement on the created with easyrsa v3 pki
+//DirKeyStorage is easyrsa v3 compilant storage. It can be used as a drop-off replacement on the created with easyrsa v3 pki
 type DirKeyStorage struct {
 	pkidir string
 }
@@ -61,7 +61,7 @@ func (s *DirKeyStorage) Put(pair *pair.X509Pair) error {
 	_, err = os.Stat(certPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			return fmt.Errorf("%s already exist. Aborting writing to avoid overwriting this file", certPath)
+			return fmt.Errorf("%s already exist. Abort writing to avoid overwriting this file", certPath)
 		}
 	}
 
@@ -108,7 +108,7 @@ func (s *DirKeyStorage) GetBySerial(serial *big.Int) (*pair.X509Pair, error) {
 	panic("implement me")
 }
 
-func (s *DirKeyStorage) DeleteByCn(cn string) error {
+func (s *DirKeyStorage) DeleteByCN(cn string) error {
 	//TODO implement me
 	panic("implement me")
 }

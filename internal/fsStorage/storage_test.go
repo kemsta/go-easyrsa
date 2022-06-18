@@ -211,8 +211,8 @@ func TestDirKeyStorage_DeleteByCn(t *testing.T) {
 			s := &DirKeyStorage{
 				keydir: tt.fields.keydir,
 			}
-			if err := s.DeleteByCn(tt.args.cn); (err != nil) != tt.wantErr {
-				t.Errorf("DirKeyStorage.DeleteByCn() error = %v, wantErr %v", err, tt.wantErr)
+			if err := s.DeleteByCN(tt.args.cn); (err != nil) != tt.wantErr {
+				t.Errorf("DirKeyStorage.DeleteByCN() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

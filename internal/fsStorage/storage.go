@@ -152,8 +152,8 @@ func (s *DirKeyStorage) Put(pair *pair.X509Pair) error {
 	return nil
 }
 
-// DeleteByCn delete all pairs by CN
-func (s *DirKeyStorage) DeleteByCn(cn string) error {
+// DeleteByCN delete all pairs by CN
+func (s *DirKeyStorage) DeleteByCN(cn string) error {
 	err := os.Remove(filepath.Join(s.keydir, cn))
 	if err != nil {
 		return fmt.Errorf("can`t delete by cn %v in %v: %w", cn, s.keydir, err)
