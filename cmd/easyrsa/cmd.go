@@ -2,17 +2,17 @@ package main
 
 import (
 	"fmt"
-	"log"
-	"os"
-	"strings"
-
 	"github.com/kemsta/go-easyrsa/pkg/pki"
 	"github.com/spf13/cobra"
+	"log"
+	"net"
+	"os"
 )
 
 var keyDir string
 var pkiI *pki.PKI
-var serverDnsNames string
+var serverDnsNames []string
+var serverIPs []net.IP
 
 var rootCmd = &cobra.Command{
 	Use: "easyrsa",
@@ -48,13 +48,14 @@ var buildServerKey = &cobra.Command{
 	Short: "build server cert/key",
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		var err error
-		if len(serverDnsNames) > 0 {
-			_, err = pkiI.NewCert(args[0], pki.Server(), pki.DNSNames(strings.Split(serverDnsNames, ",")))
-		} else {
-			_, err = pkiI.NewCert(args[0], pki.Server())
+		options := []pki.Option{pki.Server()}
+		if serverDnsNames != nil {
+			options = append(options, pki.DNSNames(serverDnsNames))
 		}
-		if err != nil {
+		if serverIPs != nil {
+			options = append(options, pki.IPAddresses(serverIPs))
+		}
+		if _, err := pkiI.NewCert(args[0], options...); err != nil {
 			fmt.Println(fmt.Errorf("can`t build server pair: %s", err))
 		}
 	},
@@ -86,7 +87,8 @@ var revokeFull = &cobra.Command{
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&keyDir, "key-dir", "k", "keys", "")
-	buildServerKey.Flags().StringVarP(&serverDnsNames, "dns", "n", "", "server dns names")
+	buildServerKey.Flags().StringArrayVarP(&serverDnsNames, "dns", "n", nil, "server dns names")
+	buildServerKey.Flags().IPSliceVarP(&serverIPs, "ip", "i", nil, "server ip addresses")
 	rootCmd.AddCommand(buildCa)
 	rootCmd.AddCommand(buildServerKey)
 	rootCmd.AddCommand(buildKey)
