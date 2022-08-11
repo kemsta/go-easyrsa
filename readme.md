@@ -7,16 +7,16 @@ Simple golang implementation some [easy-rsa](https://github.com/OpenVPN/easy-rsa
 
 ## cli usage examples
 
-go get github.com/kemsta/go-easyrsa/easyrsa-cli
+go install github.com/kemsta/go-easyrsa/cmd/easyrsa@latest
 
 ### build ca pair
-easyrsa-cli -k keys build-ca
+easyrsa -k keys build-ca
 
 ### build server pair
-easyrsa-cli -k keys build-server-key some-server-name
+easyrsa -k keys build-server-key some-server-name
 
 ### build client pair
-easyrsa-cli -k keys build-key some-client-name
+easyrsa -k keys build-key some-client-name
 
 ### revoke cert
-easyrsa-cli -k keys revoke-full some-client-name
+easyrsa -k keys revoke-full some-client-name
