@@ -3,7 +3,7 @@ module github.com/kemsta/go-easyrsa/cmd/easyrsa
 go 1.18
 
 require (
-	github.com/kemsta/go-easyrsa v1.0.1
+	github.com/kemsta/go-easyrsa v1.0.2
 	github.com/spf13/cobra v1.4.0
 )
 
