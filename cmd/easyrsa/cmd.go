@@ -33,10 +33,14 @@ func Execute() {
 }
 
 var buildCa = &cobra.Command{
-	Use:   "build-ca",
-	Short: "build ca cert/key",
+	Use:   "build-ca [CN]",
+	Short: "build ca cert/key with optional CN",
 	Run: func(cmd *cobra.Command, args []string) {
-		_, err := pkiI.NewCa()
+		var options []pki.Option
+		if len(args) > 0 {
+			options = append(options, pki.CN(args[0]))
+		}
+		_, err := pkiI.NewCa(options...)
 		if err != nil {
 			fmt.Println(fmt.Errorf("can`t build ca pair: %s", err))
 		}
@@ -44,8 +48,8 @@ var buildCa = &cobra.Command{
 }
 
 var buildServerKey = &cobra.Command{
-	Use:   "build-server-key [cn]",
-	Short: "build server cert/key",
+	Use:   "build-server-key CN",
+	Short: "build server cert/key with CN",
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		options := []pki.Option{pki.Server()}
@@ -62,8 +66,8 @@ var buildServerKey = &cobra.Command{
 }
 
 var buildKey = &cobra.Command{
-	Use:   "build-key [cn]",
-	Short: "build client cert/key",
+	Use:   "build-key CN",
+	Short: "build client cert/key with CN",
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		_, err := pkiI.NewCert(args[0], pki.Client())
@@ -74,8 +78,8 @@ var buildKey = &cobra.Command{
 }
 
 var revokeFull = &cobra.Command{
-	Use:   "revoke-full [cn]",
-	Short: "revoke cert",
+	Use:   "revoke-full CN",
+	Short: "revoke cert with CN",
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		err := pkiI.RevokeAllByCN(args[0])
