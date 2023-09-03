@@ -10,7 +10,6 @@ import (
 	"github.com/gofrs/flock"
 	"github.com/kemsta/go-easyrsa/internal/utils"
 	"github.com/kemsta/go-easyrsa/pkg/pair"
-	"io/ioutil"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -107,7 +106,7 @@ func (p *FileSerialProvider) Next() (*big.Int, error) {
 		_ = p.locker.Unlock()
 	}()
 	res := big.NewInt(0)
-	sBytes, err := ioutil.ReadFile(p.path)
+	sBytes, err := os.ReadFile(p.path)
 	if os.IsNotExist(err) {
 		// nothing to do. New serial
 	} else if err != nil {
@@ -199,11 +198,11 @@ func (s *DirKeyStorage) GetByCN(cn string) ([]*pair.X509Pair, error) {
 			if err != nil {
 				return nil
 			}
-			certBytes, err := ioutil.ReadFile(path)
+			certBytes, err := os.ReadFile(path)
 			if err != nil {
 				return nil
 			}
-			keyBytes, err := ioutil.ReadFile(fmt.Sprintf("%s.key", path[0:len(path)-len(filepath.Ext(path))]))
+			keyBytes, err := os.ReadFile(fmt.Sprintf("%s.key", path[0:len(path)-len(filepath.Ext(path))]))
 			if err != nil {
 				return nil
 			}
@@ -244,11 +243,11 @@ func (s *DirKeyStorage) GetBySerial(serial *big.Int) (*pair.X509Pair, error) {
 			}
 			cn := filepath.Base(filepath.Dir(path))
 			if serial.Text(16) == big.NewInt(ser).Text(16) {
-				certBytes, err := ioutil.ReadFile(path)
+				certBytes, err := os.ReadFile(path)
 				if err != nil {
 					return nil
 				}
-				keyBytes, err := ioutil.ReadFile(fmt.Sprintf("%s.key", path[0:len(path)-len(filepath.Ext(path))]))
+				keyBytes, err := os.ReadFile(fmt.Sprintf("%s.key", path[0:len(path)-len(filepath.Ext(path))]))
 				if err != nil {
 					return nil
 				}
@@ -278,11 +277,11 @@ func (s *DirKeyStorage) GetAll() ([]*pair.X509Pair, error) {
 				return nil
 			}
 			cn := filepath.Base(filepath.Dir(path))
-			certBytes, err := ioutil.ReadFile(path)
+			certBytes, err := os.ReadFile(path)
 			if err != nil {
 				return nil
 			}
-			keyBytes, err := ioutil.ReadFile(fmt.Sprintf("%s.key", path[0:len(path)-len(filepath.Ext(path))]))
+			keyBytes, err := os.ReadFile(fmt.Sprintf("%s.key", path[0:len(path)-len(filepath.Ext(path))]))
 			if err != nil {
 				return nil
 			}

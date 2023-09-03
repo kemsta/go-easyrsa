@@ -7,7 +7,6 @@ import (
 	"github.com/kemsta/go-easyrsa/internal/utils"
 	"github.com/kemsta/go-easyrsa/pkg/pair"
 	"io"
-	"io/ioutil"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -171,11 +170,11 @@ func TestDirKeyStorage_Put(t *testing.T) {
 			}
 		})
 	}
-	certBytes, _ := ioutil.ReadFile(filepath.Join(getTestDir(), "dir_keystorage", "good_cert/42.crt"))
+	certBytes, _ := os.ReadFile(filepath.Join(getTestDir(), "dir_keystorage", "good_cert/42.crt"))
 	if !bytes.Equal(certBytes, []byte("certbytes")) {
 		t.Errorf("DirKeyStorage.Put() wrong cert bytes in result file")
 	}
-	keyBytes, _ := ioutil.ReadFile(filepath.Join(getTestDir(), "dir_keystorage", "good_cert/42.key"))
+	keyBytes, _ := os.ReadFile(filepath.Join(getTestDir(), "dir_keystorage", "good_cert/42.key"))
 	if !bytes.Equal(keyBytes, []byte("keybytes")) {
 		t.Errorf("DirKeyStorage.Put() wrong key bytes in result file")
 	}
@@ -340,8 +339,8 @@ func TestDirKeyStorage_GetBySerial(t *testing.T) {
 func TestDirKeyStorage_DeleteBySerial(t *testing.T) {
 
 	_ = os.MkdirAll(filepath.Join(getTestDir(), "dir_keystorage", "for_delete"), 0755)
-	_ = ioutil.WriteFile(filepath.Join(getTestDir(), "dir_keystorage", "for_delete", "a.crt"), []byte(""), 0600)
-	_ = ioutil.WriteFile(filepath.Join(getTestDir(), "dir_keystorage", "for_delete", "a.key"), []byte(""), 0600)
+	_ = os.WriteFile(filepath.Join(getTestDir(), "dir_keystorage", "for_delete", "a.crt"), []byte(""), 0600)
+	_ = os.WriteFile(filepath.Join(getTestDir(), "dir_keystorage", "for_delete", "a.key"), []byte(""), 0600)
 
 	type fields struct {
 		keydir string
@@ -392,7 +391,7 @@ func TestDirKeyStorage_DeleteBySerial(t *testing.T) {
 func TestFileSerialProvider_Next(t *testing.T) {
 	defer func() {
 		_ = os.RemoveAll(filepath.Join(getTestDir(), "dir_keystorage", "new_serial"))
-		_ = ioutil.WriteFile(filepath.Join(getTestDir(), "dir_keystorage", "wrong_serial"), []byte("gggg"), 0666)
+		_ = os.WriteFile(filepath.Join(getTestDir(), "dir_keystorage", "wrong_serial"), []byte("gggg"), 0666)
 	}()
 	type fields struct {
 		path string
@@ -463,7 +462,7 @@ func TestFileCRLHolder_Put(t *testing.T) {
 		if err != nil {
 			t.Errorf("FileCRLHolder.Put() error = %v", err)
 		}
-		got, _ := ioutil.ReadFile(fileName)
+		got, _ := os.ReadFile(fileName)
 		if !bytes.Equal(got, content) {
 			t.Errorf("FileCRLHolder.Put() got = %v, want %v", got, content)
 		}
@@ -472,14 +471,14 @@ func TestFileCRLHolder_Put(t *testing.T) {
 		fileName := filepath.Join(getTestDir(), "dir_keystorage", "exist.pem")
 		content := []byte("content")
 		defer func() {
-			_ = ioutil.WriteFile(fileName, []byte("asd"), 0644)
+			_ = os.WriteFile(fileName, []byte("asd"), 0644)
 		}()
 		h := NewFileCRLHolder(fileName)
 		err := h.Put(content)
 		if err != nil {
 			t.Errorf("FileCRLHolder.Put() error = %v", err)
 		}
-		got, _ := ioutil.ReadFile(fileName)
+		got, _ := os.ReadFile(fileName)
 		if !bytes.Equal(got, content) {
 			t.Errorf("FileCRLHolder.Put() got = %v, want %v", got, content)
 		}
@@ -488,7 +487,7 @@ func TestFileCRLHolder_Put(t *testing.T) {
 		fileName := filepath.Join(getTestDir(), "dir_keystorage", "crl.dir")
 		content := []byte("content")
 		defer func() {
-			_ = ioutil.WriteFile(fileName, []byte("asd"), 0666)
+			_ = os.WriteFile(fileName, []byte("asd"), 0666)
 		}()
 		h := NewFileCRLHolder(fileName)
 		err := h.Put(content)
