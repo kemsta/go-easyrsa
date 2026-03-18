@@ -31,8 +31,10 @@ func (db *IndexDB) Record(entry storage.IndexEntry) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	_, err = fmt.Fprintln(f, formatIndexEntry(entry))
+	if closeErr := f.Close(); closeErr != nil && err == nil {
+		err = closeErr
+	}
 	return err
 }
 
@@ -85,7 +87,6 @@ func (db *IndexDB) readAll() ([]storage.IndexEntry, error) {
 		}
 		return nil, err
 	}
-	defer f.Close()
 	var entries []storage.IndexEntry
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
@@ -99,7 +100,11 @@ func (db *IndexDB) readAll() ([]storage.IndexEntry, error) {
 		}
 		entries = append(entries, e)
 	}
-	return entries, scanner.Err()
+	scanErr := scanner.Err()
+	if closeErr := f.Close(); closeErr != nil && scanErr == nil {
+		scanErr = closeErr
+	}
+	return entries, scanErr
 }
 
 func (db *IndexDB) writeAll(entries []storage.IndexEntry) error {
@@ -107,13 +112,17 @@ func (db *IndexDB) writeAll(entries []storage.IndexEntry) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	var writeErr error
 	for _, e := range entries {
 		if _, err := fmt.Fprintln(f, formatIndexEntry(e)); err != nil {
-			return err
+			writeErr = err
+			break
 		}
 	}
-	return nil
+	if closeErr := f.Close(); closeErr != nil && writeErr == nil {
+		writeErr = closeErr
+	}
+	return writeErr
 }
 
 // formatIndexEntry formats an IndexEntry as an index.txt line.

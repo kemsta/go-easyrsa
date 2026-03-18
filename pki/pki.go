@@ -2,12 +2,8 @@ package pki
 
 import (
 	"crypto/elliptic"
-	"crypto/x509"
 	"errors"
-	"math/big"
-	"time"
 
-	"github.com/kemsta/go-easyrsa/cert"
 	"github.com/kemsta/go-easyrsa/storage"
 	fsstore "github.com/kemsta/go-easyrsa/storage/fs"
 )
@@ -109,43 +105,3 @@ func (p *PKI) keyPassphrase(o options) string {
 	return ""
 }
 
-// notImplKeyStorage implements storage.KeyStorage returning ErrNotImplemented.
-type notImplKeyStorage struct{}
-
-func (n *notImplKeyStorage) Put(_ *cert.Pair) error                     { return ErrNotImplemented }
-func (n *notImplKeyStorage) GetByName(_ string) ([]*cert.Pair, error)   { return nil, ErrNotImplemented }
-func (n *notImplKeyStorage) GetLastByName(_ string) (*cert.Pair, error) { return nil, ErrNotImplemented }
-func (n *notImplKeyStorage) GetBySerial(_ *big.Int) (*cert.Pair, error) { return nil, ErrNotImplemented }
-func (n *notImplKeyStorage) DeleteByName(_ string) error                { return ErrNotImplemented }
-func (n *notImplKeyStorage) DeleteBySerial(_ *big.Int) error            { return ErrNotImplemented }
-func (n *notImplKeyStorage) GetAll() ([]*cert.Pair, error)              { return nil, ErrNotImplemented }
-
-// notImplCSRStorage implements storage.CSRStorage returning ErrNotImplemented.
-type notImplCSRStorage struct{}
-
-func (n *notImplCSRStorage) PutCSR(_ string, _ []byte) error { return ErrNotImplemented }
-func (n *notImplCSRStorage) GetCSR(_ string) ([]byte, error) { return nil, ErrNotImplemented }
-func (n *notImplCSRStorage) DeleteCSR(_ string) error        { return ErrNotImplemented }
-func (n *notImplCSRStorage) ListCSRs() ([]string, error)     { return nil, ErrNotImplemented }
-
-// notImplIndexDB implements storage.IndexDB returning ErrNotImplemented.
-type notImplIndexDB struct{}
-
-func (n *notImplIndexDB) Record(_ storage.IndexEntry) error { return ErrNotImplemented }
-func (n *notImplIndexDB) Update(_ *big.Int, _ storage.CertStatus, _ time.Time, _ cert.RevocationReason) error {
-	return ErrNotImplemented
-}
-func (n *notImplIndexDB) Query(_ storage.IndexFilter) ([]storage.IndexEntry, error) {
-	return nil, ErrNotImplemented
-}
-
-// notImplSerialProvider implements storage.SerialProvider returning ErrNotImplemented.
-type notImplSerialProvider struct{}
-
-func (n *notImplSerialProvider) Next() (*big.Int, error) { return nil, ErrNotImplemented }
-
-// notImplCRLHolder implements storage.CRLHolder returning ErrNotImplemented.
-type notImplCRLHolder struct{}
-
-func (n *notImplCRLHolder) Put(_ []byte) error                { return ErrNotImplemented }
-func (n *notImplCRLHolder) Get() (*x509.RevocationList, error) { return nil, ErrNotImplemented }
