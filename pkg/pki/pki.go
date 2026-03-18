@@ -244,12 +244,13 @@ func (p *PKI) IsRevoked(serial *big.Int) bool {
 }
 
 func removeDups(list []pkix.RevokedCertificate) []pkix.RevokedCertificate {
-	encountered := map[int64]bool{}
+	encountered := map[string]bool{}
 	result := make([]pkix.RevokedCertificate, 0)
 	for _, cert := range list {
-		if !encountered[cert.SerialNumber.Int64()] {
+		key := cert.SerialNumber.Text(16)
+		if !encountered[key] {
 			result = append(result, cert)
-			encountered[cert.SerialNumber.Int64()] = true
+			encountered[key] = true
 		}
 	}
 	return result
