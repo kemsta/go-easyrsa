@@ -168,7 +168,7 @@ func (p *PKI) NewCert(cn string, opts ...Option) (*pair.X509Pair, error) {
 }
 
 // GetCRL return current revoke list
-func (p *PKI) GetCRL() (*pkix.CertificateList, error) {
+func (p *PKI) GetCRL() (*x509.RevocationList, error) {
 	return p.crlHolder.Get()
 }
 
@@ -179,9 +179,9 @@ func (p *PKI) GetLastCA() (*pair.X509Pair, error) {
 
 // RevokeOne revoke one pair with serial
 func (p *PKI) RevokeOne(serial *big.Int) error {
-	list := make([]pkix.RevokedCertificate, 0)
+	list := make([]x509.RevocationListEntry, 0)
 	if oldList, err := p.GetCRL(); err == nil {
-		list = oldList.TBSCertList.RevokedCertificates
+		list = oldList.RevokedCertificateEntries
 	}
 	caPairs, err := p.Storage.GetByCN("ca")
 	if err != nil {
@@ -194,12 +194,16 @@ func (p *PKI) RevokeOne(serial *big.Int) error {
 	if err != nil {
 		return fmt.Errorf("can`t decode ca certs for signing crl: %w", err)
 	}
-	list = append(list, pkix.RevokedCertificate{
+	list = append(list, x509.RevocationListEntry{
 		SerialNumber:   serial,
 		RevocationTime: time.Now(),
 	})
-	crlBytes, err := caCert.CreateCRL(
-		rand.Reader, caKey, removeDups(list), time.Now(), time.Now().Add(DefaultExpireYears*365*24*time.Hour))
+	crlBytes, err := x509.CreateRevocationList(rand.Reader, &x509.RevocationList{
+		RevokedCertificateEntries: removeDups(list),
+		Number:                    big.NewInt(time.Now().Unix()),
+		ThisUpdate:                time.Now(),
+		NextUpdate:                time.Now().Add(DefaultExpireYears * 365 * 24 * time.Hour),
+	}, caCert, caKey)
 	if err != nil {
 		return fmt.Errorf("can`t create crl: %w", err)
 	}
@@ -233,9 +237,9 @@ func (p *PKI) RevokeAllByCN(cn string) error {
 func (p *PKI) IsRevoked(serial *big.Int) bool {
 	revokedCerts, err := p.GetCRL()
 	if err != nil {
-		revokedCerts = &pkix.CertificateList{}
+		revokedCerts = &x509.RevocationList{}
 	}
-	for _, cert := range revokedCerts.TBSCertList.RevokedCertificates {
+	for _, cert := range revokedCerts.RevokedCertificateEntries {
 		if cert.SerialNumber.Cmp(serial) == 0 {
 			return true
 		}
@@ -243,13 +247,14 @@ func (p *PKI) IsRevoked(serial *big.Int) bool {
 	return false
 }
 
-func removeDups(list []pkix.RevokedCertificate) []pkix.RevokedCertificate {
-	encountered := map[int64]bool{}
-	result := make([]pkix.RevokedCertificate, 0)
+func removeDups(list []x509.RevocationListEntry) []x509.RevocationListEntry {
+	encountered := map[string]bool{}
+	result := make([]x509.RevocationListEntry, 0)
 	for _, cert := range list {
-		if !encountered[cert.SerialNumber.Int64()] {
+		key := cert.SerialNumber.Text(16)
+		if !encountered[key] {
 			result = append(result, cert)
-			encountered[cert.SerialNumber.Int64()] = true
+			encountered[key] = true
 		}
 	}
 	return result
