@@ -1,0 +1,262 @@
+package fs
+
+import (
+	"bufio"
+	"crypto/x509/pkix"
+	"fmt"
+	"math/big"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/kemsta/go-easyrsa/cert"
+	"github.com/kemsta/go-easyrsa/storage"
+)
+
+// indexTimeFormat is the UTCTime format used in index.txt (yyMMddHHmmssZ).
+const indexTimeFormat = "060102150405Z"
+
+// IndexDB implements storage.IndexDB using an OpenSSL-compatible index.txt file.
+type IndexDB struct {
+	path string
+}
+
+// NewIndexDB creates an IndexDB backed by pkiDir/index.txt.
+func NewIndexDB(pkiDir string) *IndexDB {
+	return &IndexDB{path: fsJoin(pkiDir, "index.txt")}
+}
+
+func (db *IndexDB) Record(entry storage.IndexEntry) error {
+	f, err := os.OpenFile(db.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = fmt.Fprintln(f, formatIndexEntry(entry))
+	return err
+}
+
+func (db *IndexDB) Update(serial *big.Int, status storage.CertStatus, revokedAt time.Time, reason cert.RevocationReason) error {
+	entries, err := db.readAll()
+	if err != nil {
+		return err
+	}
+	found := false
+	for i, e := range entries {
+		if e.Serial.Cmp(serial) == 0 {
+			entries[i].Status = status
+			if status == storage.StatusRevoked {
+				entries[i].RevokedAt = revokedAt
+				entries[i].RevocationReason = reason
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		return storage.ErrNotFound
+	}
+	return db.writeAll(entries)
+}
+
+func (db *IndexDB) Query(filter storage.IndexFilter) ([]storage.IndexEntry, error) {
+	entries, err := db.readAll()
+	if err != nil {
+		return nil, err
+	}
+	var result []storage.IndexEntry
+	for _, e := range entries {
+		if filter.Status != nil && e.Status != *filter.Status {
+			continue
+		}
+		if filter.Name != "" && e.Subject.CommonName != filter.Name {
+			continue
+		}
+		result = append(result, e)
+	}
+	return result, nil
+}
+
+func (db *IndexDB) readAll() ([]storage.IndexEntry, error) {
+	f, err := os.Open(db.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+	var entries []storage.IndexEntry
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		e, err := parseIndexLine(line)
+		if err != nil {
+			continue // skip malformed lines
+		}
+		entries = append(entries, e)
+	}
+	return entries, scanner.Err()
+}
+
+func (db *IndexDB) writeAll(entries []storage.IndexEntry) error {
+	f, err := os.Create(db.path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	for _, e := range entries {
+		if _, err := fmt.Fprintln(f, formatIndexEntry(e)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// formatIndexEntry formats an IndexEntry as an index.txt line.
+func formatIndexEntry(e storage.IndexEntry) string {
+	expires := e.ExpiresAt.UTC().Format(indexTimeFormat)
+	serial := hexSerial(e.Serial)
+	subject := subjectDNString(e.Subject)
+
+	var revoked string
+	if e.Status == storage.StatusRevoked {
+		revoked = e.RevokedAt.UTC().Format(indexTimeFormat) + "," + reasonString(e.RevocationReason)
+	}
+	return fmt.Sprintf("%s\t%s\t%s\t%s\tunknown\t%s",
+		string(e.Status), expires, revoked, serial, subject)
+}
+
+// parseIndexLine parses a single index.txt line into an IndexEntry.
+func parseIndexLine(line string) (storage.IndexEntry, error) {
+	fields := strings.SplitN(line, "\t", 6)
+	if len(fields) < 6 {
+		return storage.IndexEntry{}, fmt.Errorf("index: malformed line: %q", line)
+	}
+
+	status := storage.CertStatus(fields[0])
+	expiresAt, err := time.ParseInLocation(indexTimeFormat, fields[1], time.UTC)
+	if err != nil {
+		return storage.IndexEntry{}, fmt.Errorf("index: bad expires %q: %w", fields[1], err)
+	}
+
+	var revokedAt time.Time
+	var reason cert.RevocationReason
+	if fields[2] != "" {
+		parts := strings.SplitN(fields[2], ",", 2)
+		revokedAt, err = time.ParseInLocation(indexTimeFormat, parts[0], time.UTC)
+		if err != nil {
+			return storage.IndexEntry{}, fmt.Errorf("index: bad revoked time %q: %w", parts[0], err)
+		}
+		if len(parts) > 1 {
+			reason = parseReasonString(parts[1])
+		}
+	}
+
+	serial := new(big.Int)
+	serial.SetString(fields[3], 16)
+
+	subject := parseDNString(fields[5])
+
+	return storage.IndexEntry{
+		Status:           status,
+		ExpiresAt:        expiresAt,
+		RevokedAt:        revokedAt,
+		Serial:           serial,
+		Subject:          subject,
+		RevocationReason: reason,
+	}, nil
+}
+
+// subjectDNString formats a pkix.Name as /CN=foo/O=bar etc.
+func subjectDNString(n pkix.Name) string {
+	var parts []string
+	if n.CommonName != "" {
+		parts = append(parts, "CN="+n.CommonName)
+	}
+	for _, v := range n.Organization {
+		parts = append(parts, "O="+v)
+	}
+	for _, v := range n.OrganizationalUnit {
+		parts = append(parts, "OU="+v)
+	}
+	for _, v := range n.Country {
+		parts = append(parts, "C="+v)
+	}
+	for _, v := range n.Province {
+		parts = append(parts, "ST="+v)
+	}
+	for _, v := range n.Locality {
+		parts = append(parts, "L="+v)
+	}
+	if len(parts) == 0 {
+		return "/"
+	}
+	return "/" + strings.Join(parts, "/")
+}
+
+// parseDNString parses /CN=foo/O=bar into a pkix.Name.
+func parseDNString(s string) pkix.Name {
+	var n pkix.Name
+	if !strings.HasPrefix(s, "/") {
+		return n
+	}
+	for _, part := range strings.Split(strings.TrimPrefix(s, "/"), "/") {
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		switch kv[0] {
+		case "CN":
+			n.CommonName = kv[1]
+		case "O":
+			n.Organization = append(n.Organization, kv[1])
+		case "OU":
+			n.OrganizationalUnit = append(n.OrganizationalUnit, kv[1])
+		case "C":
+			n.Country = append(n.Country, kv[1])
+		case "ST":
+			n.Province = append(n.Province, kv[1])
+		case "L":
+			n.Locality = append(n.Locality, kv[1])
+		}
+	}
+	return n
+}
+
+func reasonString(r cert.RevocationReason) string {
+	switch r {
+	case cert.ReasonKeyCompromise:
+		return "keyCompromise"
+	case cert.ReasonCACompromise:
+		return "caCompromise"
+	case cert.ReasonAffiliationChanged:
+		return "affiliationChanged"
+	case cert.ReasonSuperseded:
+		return "superseded"
+	case cert.ReasonCessationOfOperation:
+		return "cessationOfOperation"
+	default:
+		return "unspecified"
+	}
+}
+
+func parseReasonString(s string) cert.RevocationReason {
+	switch s {
+	case "keyCompromise":
+		return cert.ReasonKeyCompromise
+	case "caCompromise":
+		return cert.ReasonCACompromise
+	case "affiliationChanged":
+		return cert.ReasonAffiliationChanged
+	case "superseded":
+		return cert.ReasonSuperseded
+	case "cessationOfOperation":
+		return cert.ReasonCessationOfOperation
+	default:
+		return cert.ReasonUnspecified
+	}
+}
