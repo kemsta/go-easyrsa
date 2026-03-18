@@ -10,10 +10,12 @@ import (
 	"github.com/gofrs/flock"
 	"github.com/kemsta/go-easyrsa/pkg/pair"
 	"io"
+	"io/ioutil"
 	"math/big"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -67,7 +69,7 @@ func (h *FileCRLHolder) Get() (*pkix.CertificateList, error) {
 	if stat, err := os.Stat(h.path); err != nil || stat.Size() == 0 {
 		return &pkix.CertificateList{}, nil
 	}
-	fBytes, err := os.ReadFile(h.path)
+	fBytes, err := ioutil.ReadFile(h.path)
 	if err != nil {
 		return nil, fmt.Errorf("can`t read crl %v: %w", h.path, err)
 	}
@@ -99,7 +101,7 @@ func (p *FileSerialProvider) Next() (*big.Int, error) {
 		_ = p.locker.Unlock()
 	}()
 	res := big.NewInt(0)
-	sBytes, err := os.ReadFile(p.path)
+	sBytes, err := ioutil.ReadFile(p.path)
 	if os.IsNotExist(err) {
 		// nothing to do. New serial
 	} else if err != nil {
@@ -144,7 +146,7 @@ func (s *DirKeyStorage) Put(pair *pair.X509Pair) error {
 		return fmt.Errorf("can`t write cert %v: %w", certPath, err)
 	}
 
-	if err := writeFileAtomic(keyPath, bytes.NewReader(pair.KeyPemBytes), 0600); err != nil {
+	if err := writeFileAtomic(keyPath, bytes.NewReader(pair.KeyPemBytes), 0644); err != nil {
 		return fmt.Errorf("can`t write cert %v: %w", certPath, err)
 	}
 	return nil
@@ -187,19 +189,19 @@ func (s *DirKeyStorage) GetByCN(cn string) ([]*pair.X509Pair, error) {
 		}
 		if filepath.Ext(path) == CertFileExtension {
 			fileName := filepath.Base(path)
-			serial, ok := new(big.Int).SetString(fileName[0:len(fileName)-len(filepath.Ext(fileName))], 16)
-			if !ok {
-				return nil
-			}
-			certBytes, err := os.ReadFile(path)
+			serial, err := strconv.ParseInt(fileName[0:len(fileName)-len(filepath.Ext(fileName))], 16, 64)
 			if err != nil {
 				return nil
 			}
-			keyBytes, err := os.ReadFile(fmt.Sprintf("%s.key", path[0:len(path)-len(filepath.Ext(path))]))
+			certBytes, err := ioutil.ReadFile(path)
 			if err != nil {
 				return nil
 			}
-			res = append(res, pair.NewX509Pair(keyBytes, certBytes, cn, serial))
+			keyBytes, err := ioutil.ReadFile(fmt.Sprintf("%s.key", path[0:len(path)-len(filepath.Ext(path))]))
+			if err != nil {
+				return nil
+			}
+			res = append(res, pair.NewX509Pair(keyBytes, certBytes, cn, big.NewInt(serial)))
 		}
 		return nil
 	})
@@ -230,21 +232,21 @@ func (s *DirKeyStorage) GetBySerial(serial *big.Int) (*pair.X509Pair, error) {
 		}
 		if filepath.Ext(path) == CertFileExtension {
 			fileName := filepath.Base(path)
-			ser, ok := new(big.Int).SetString(fileName[0:len(fileName)-len(filepath.Ext(fileName))], 16)
-			if !ok {
+			ser, err := strconv.ParseInt(fileName[0:len(fileName)-len(filepath.Ext(fileName))], 16, 64)
+			if err != nil {
 				return nil
 			}
 			cn := filepath.Base(filepath.Dir(path))
-			if serial.Cmp(ser) == 0 {
-				certBytes, err := os.ReadFile(path)
+			if serial.Text(16) == big.NewInt(ser).Text(16) {
+				certBytes, err := ioutil.ReadFile(path)
 				if err != nil {
 					return nil
 				}
-				keyBytes, err := os.ReadFile(fmt.Sprintf("%s.key", path[0:len(path)-len(filepath.Ext(path))]))
+				keyBytes, err := ioutil.ReadFile(fmt.Sprintf("%s.key", path[0:len(path)-len(filepath.Ext(path))]))
 				if err != nil {
 					return nil
 				}
-				res = pair.NewX509Pair(keyBytes, certBytes, cn, ser)
+				res = pair.NewX509Pair(keyBytes, certBytes, cn, big.NewInt(ser))
 				return nil
 			}
 		}
@@ -265,20 +267,20 @@ func (s *DirKeyStorage) GetAll() ([]*pair.X509Pair, error) {
 		}
 		if filepath.Ext(path) == CertFileExtension {
 			fileName := filepath.Base(path)
-			ser, ok := new(big.Int).SetString(fileName[0:len(fileName)-len(filepath.Ext(fileName))], 16)
-			if !ok {
+			ser, err := strconv.ParseInt(fileName[0:len(fileName)-len(filepath.Ext(fileName))], 16, 64)
+			if err != nil {
 				return nil
 			}
 			cn := filepath.Base(filepath.Dir(path))
-			certBytes, err := os.ReadFile(path)
+			certBytes, err := ioutil.ReadFile(path)
 			if err != nil {
 				return nil
 			}
-			keyBytes, err := os.ReadFile(fmt.Sprintf("%s.key", path[0:len(path)-len(filepath.Ext(path))]))
+			keyBytes, err := ioutil.ReadFile(fmt.Sprintf("%s.key", path[0:len(path)-len(filepath.Ext(path))]))
 			if err != nil {
 				return nil
 			}
-			res = append(res, pair.NewX509Pair(keyBytes, certBytes, cn, ser))
+			res = append(res, pair.NewX509Pair(keyBytes, certBytes, cn, big.NewInt(ser)))
 		}
 		return nil
 	})
@@ -306,7 +308,7 @@ func writeFileAtomic(path string, r io.Reader, mode os.FileMode) error {
 	if dir == "" {
 		dir = "."
 	}
-	fd, err := os.CreateTemp(dir, file)
+	fd, err := ioutil.TempFile(dir, file)
 	if err != nil {
 		return fmt.Errorf("cannot create temp file: %w", err)
 	}
