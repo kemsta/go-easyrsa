@@ -41,8 +41,7 @@ func MarshalPrivateKey(key crypto.PrivateKey, passphrase string) ([]byte, error)
 		return nil, err
 	}
 	if passphrase != "" {
-		//nolint:staticcheck // EncryptPEMBlock is deprecated but provides the simplest interoperable encryption
-		block, err := x509.EncryptPEMBlock(rand.Reader, "PRIVATE KEY", der, []byte(passphrase), x509.PEMCipherAES256)
+		block, err := x509.EncryptPEMBlock(rand.Reader, "PRIVATE KEY", der, []byte(passphrase), x509.PEMCipherAES256) //nolint:staticcheck // deprecated but needed for PEM-level encrypted key compatibility
 		if err != nil {
 			return nil, err
 		}
@@ -62,11 +61,9 @@ func UnmarshalPrivateKey(pemBytes []byte, passphrase string) (crypto.PrivateKey,
 		return nil, errors.New("pkicrypto: failed to decode PEM block")
 	}
 	var der []byte
-	//nolint:staticcheck // IsEncryptedPEMBlock is deprecated but needed for compatibility
-	if x509.IsEncryptedPEMBlock(block) {
+	if x509.IsEncryptedPEMBlock(block) { //nolint:staticcheck // deprecated but needed for PEM-level encrypted key compatibility
 		var err error
-		//nolint:staticcheck // DecryptPEMBlock is deprecated but needed for compatibility
-		der, err = x509.DecryptPEMBlock(block, []byte(passphrase))
+		der, err = x509.DecryptPEMBlock(block, []byte(passphrase)) //nolint:staticcheck // deprecated but needed for PEM-level encrypted key compatibility
 		if err != nil {
 			return nil, err
 		}
