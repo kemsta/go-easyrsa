@@ -124,7 +124,7 @@ func TestPKI_RevokeOne(t *testing.T) {
 		err := pki.RevokeOne(big.NewInt(300))
 		assert.NoError(t, err)
 		list, _ := pki.GetCRL()
-		assert.Equal(t, list.TBSCertList.RevokedCertificates[0].SerialNumber, big.NewInt(300))
+		assert.Equal(t, list.RevokedCertificateEntries[0].SerialNumber, big.NewInt(300))
 	})
 }
 
@@ -155,8 +155,8 @@ func TestPKI_RevokeAllByCN(t *testing.T) {
 		err := pki.RevokeAllByCN("server")
 		assert.NoError(t, err)
 		list, _ := pki.GetCRL()
-		assert.Len(t, list.TBSCertList.RevokedCertificates, 2)
-		assert.Equal(t, list.TBSCertList.RevokedCertificates[0].SerialNumber, big.NewInt(2))
+		assert.Len(t, list.RevokedCertificateEntries, 2)
+		assert.Equal(t, list.RevokedCertificateEntries[0].SerialNumber, big.NewInt(2))
 	})
 }
 

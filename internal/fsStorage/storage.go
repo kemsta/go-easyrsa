@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
-	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"github.com/gofrs/flock"
@@ -56,7 +56,7 @@ func (h *FileCRLHolder) Put(content []byte) error {
 }
 
 // Get crl content from storage
-func (h *FileCRLHolder) Get() (*pkix.CertificateList, error) {
+func (h *FileCRLHolder) Get() (*x509.RevocationList, error) {
 	err := h.locker.RLock()
 	if err != nil {
 		return nil, err
@@ -65,13 +65,17 @@ func (h *FileCRLHolder) Get() (*pkix.CertificateList, error) {
 		_ = h.locker.Unlock()
 	}()
 	if stat, err := os.Stat(h.path); err != nil || stat.Size() == 0 {
-		return &pkix.CertificateList{}, nil
+		return &x509.RevocationList{}, nil
 	}
 	fBytes, err := os.ReadFile(h.path)
 	if err != nil {
 		return nil, fmt.Errorf("can`t read crl %v: %w", h.path, err)
 	}
-	list, err := x509.ParseCRL(fBytes)
+	block, _ := pem.Decode(fBytes)
+	if block == nil {
+		return nil, fmt.Errorf("can`t decode crl pem %v", h.path)
+	}
+	list, err := x509.ParseRevocationList(block.Bytes)
 	if err != nil {
 		return nil, fmt.Errorf("can`t parse crl \n %v: %w", string(fBytes), err)
 	}

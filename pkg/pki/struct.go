@@ -1,7 +1,7 @@
 package pki
 
 import (
-	"crypto/x509/pkix"
+	"crypto/x509"
 	"github.com/kemsta/go-easyrsa/pkg/pair"
 	"math/big"
 )
@@ -24,6 +24,6 @@ type SerialProvider interface {
 
 // Certificate revocation list holder interface
 type CRLHolder interface {
-	Put([]byte) error                    // Put file content for crl
-	Get() (*pkix.CertificateList, error) // Get current revoked cert list
+	Put([]byte) error                     // Put file content for crl
+	Get() (*x509.RevocationList, error)   // Get current revoked cert list
 }
