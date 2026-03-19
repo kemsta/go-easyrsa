@@ -100,7 +100,11 @@ func (p *PKI) BuildCA(opts ...Option) (*cert.Pair, error) {
 	}
 
 	certPEM := pemEncodeCert(certDER)
-	keyPEM, err := pkicrypto.MarshalPrivateKey(privKey, p.keyPassphrase(o))
+	passphrase, err := p.keyPassphrase(o)
+	if err != nil {
+		return nil, err
+	}
+	keyPEM, err := pkicrypto.MarshalPrivateKey(privKey, passphrase)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +195,12 @@ func (p *PKI) RenewCA(opts ...Option) (*cert.Pair, error) {
 	certPEM := pemEncodeCert(certDER)
 	keyPEM := existing.KeyPEM
 	if o.passphrase != "" || (o.noPass != nil && *o.noPass) {
-		keyPEM, err = pkicrypto.MarshalPrivateKey(privKey, p.keyPassphrase(o))
+		var passphrase string
+		passphrase, err = p.keyPassphrase(o)
+		if err != nil {
+			return nil, err
+		}
+		keyPEM, err = pkicrypto.MarshalPrivateKey(privKey, passphrase)
 		if err != nil {
 			return nil, err
 		}

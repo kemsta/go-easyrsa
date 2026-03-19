@@ -57,6 +57,11 @@ type Config struct {
 	// If empty and the CA key is encrypted, signing operations return an error.
 	CAPassphrase string
 
+	// KeyPassphrase is the passphrase for decrypting stored non-CA private keys.
+	// Used by Export* methods when the key was stored with WithPassphrase.
+	// If empty and the key is encrypted, export operations return an error.
+	KeyPassphrase string
+
 	// Netscape extensions (deprecated, for compatibility)
 	NetscapeExtensions bool   // default: false
 	NetscapeComment    string // default: "Easy-RSA Generated Certificate"

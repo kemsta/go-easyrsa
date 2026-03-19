@@ -91,17 +91,18 @@ func applyConfigDefaults(cfg Config) Config {
 }
 
 // keyPassphrase resolves the passphrase to use when storing a generated key.
-// Returns "" (no encryption) when NoPass is true (config or option).
-func (p *PKI) keyPassphrase(o options) string {
+// Returns an error if NoPass is false (config and option) and no passphrase is provided,
+// to prevent silently storing plaintext private keys.
+func (p *PKI) keyPassphrase(o options) (string, error) {
 	if o.noPass != nil && *o.noPass {
-		return ""
+		return "", nil
 	}
 	if o.passphrase != "" {
-		return o.passphrase
+		return o.passphrase, nil
 	}
 	if p.config.NoPass {
-		return ""
+		return "", nil
 	}
-	return ""
+	return "", errors.New("pki: key passphrase required; use WithPassphrase() or WithNoPass()")
 }
 

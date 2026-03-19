@@ -56,7 +56,11 @@ func (p *PKI) GenReq(name string, opts ...Option) (csrPEM []byte, err error) {
 	}
 	csrPEM = pemEncodeCSR(csrDER)
 
-	keyPEM, err := pkicrypto.MarshalPrivateKey(privKey, p.keyPassphrase(o))
+	passphrase, err := p.keyPassphrase(o)
+	if err != nil {
+		return nil, err
+	}
+	keyPEM, err := pkicrypto.MarshalPrivateKey(privKey, passphrase)
 	if err != nil {
 		return nil, err
 	}

@@ -124,6 +124,12 @@ func TestBuildCA_Ed25519(t *testing.T) {
 	assert.True(t, c.IsCA)
 }
 
+func TestBuildCA_NoPassRequired(t *testing.T) {
+	p := newTestPKI(pki.Config{}) // NoPass: false, no per-op override
+	_, err := p.BuildCA()
+	assert.Error(t, err)
+}
+
 // --- RenewCA ---
 
 func TestRenewCA_Basic(t *testing.T) {
@@ -543,6 +549,27 @@ func TestExportP12_Basic(t *testing.T) {
 	require.NoError(t, err)
 
 	data, err := p.ExportP12("client1", "password")
+	require.NoError(t, err)
+	assert.NotEmpty(t, data)
+}
+
+func TestExportP12_EncryptedKey(t *testing.T) {
+	// Build with passphrase; export without KeyPassphrase should fail.
+	p := newTestPKI(pki.Config{NoPass: true})
+	buildTestCA(t, p)
+	_, err := p.BuildClientFull("client1", pki.WithPassphrase("x"))
+	require.NoError(t, err)
+
+	_, err = p.ExportP12("client1", "bundle-pass")
+	assert.Error(t, err)
+
+	// With KeyPassphrase set, export should succeed.
+	p2 := newTestPKI(pki.Config{NoPass: true, KeyPassphrase: "x"})
+	buildTestCA(t, p2)
+	_, err = p2.BuildClientFull("client1", pki.WithPassphrase("x"))
+	require.NoError(t, err)
+
+	data, err := p2.ExportP12("client1", "bundle-pass")
 	require.NoError(t, err)
 	assert.NotEmpty(t, data)
 }

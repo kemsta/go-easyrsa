@@ -19,7 +19,7 @@ func (p *PKI) ExportP12(name string, password string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	privKey, err := pkicrypto.UnmarshalPrivateKey(pair.KeyPEM, "")
+	privKey, err := pkicrypto.UnmarshalPrivateKey(pair.KeyPEM, p.config.KeyPassphrase)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +82,7 @@ func (p *PKI) ExportP8(name string, password string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	privKey, err := pkicrypto.UnmarshalPrivateKey(pair.KeyPEM, "")
+	privKey, err := pkicrypto.UnmarshalPrivateKey(pair.KeyPEM, p.config.KeyPassphrase)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func (p *PKI) ExportP1(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	privKey, err := pkicrypto.UnmarshalPrivateKey(pair.KeyPEM, "")
+	privKey, err := pkicrypto.UnmarshalPrivateKey(pair.KeyPEM, p.config.KeyPassphrase)
 	if err != nil {
 		return nil, err
 	}
