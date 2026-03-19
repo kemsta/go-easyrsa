@@ -1,7 +1,6 @@
 package pki
 
 import (
-	"crypto"
 	"crypto/elliptic"
 	"crypto/x509/pkix"
 )
@@ -27,10 +26,9 @@ const (
 // via Option functions.
 type Config struct {
 	// Crypto defaults — overridable per-operation via Option
-	KeyAlgo    KeyAlgo        // rsa | ecdsa | ed25519 (default: rsa)
-	KeySize    int            // RSA only: 2048/3072/4096 (default: 2048)
-	Curve      elliptic.Curve // ECDSA only: P-256, P-384, P-521 (default: P-256)
-	DigestAlgo crypto.Hash    // SHA-256, SHA-384, SHA-512 (default: SHA-256)
+	KeyAlgo KeyAlgo        // rsa | ecdsa | ed25519 (default: rsa)
+	KeySize int            // RSA only: 2048/3072/4096 (default: 2048)
+	Curve   elliptic.Curve // ECDSA only: P-256, P-384, P-521 (default: P-256)
 
 	// Certificate validity defaults
 	DefaultDays   int // end-entity cert validity (default: 825)
@@ -61,10 +59,6 @@ type Config struct {
 	// Used by Export* methods when the key was stored with WithPassphrase.
 	// If empty and the key is encrypted, export operations return an error.
 	KeyPassphrase string
-
-	// Netscape extensions (deprecated, for compatibility)
-	NetscapeExtensions bool   // default: false
-	NetscapeComment    string // default: "Easy-RSA Generated Certificate"
 
 	// CA name in storage
 	CAName string // default: "ca"

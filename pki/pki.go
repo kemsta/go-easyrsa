@@ -8,9 +8,6 @@ import (
 	fsstore "github.com/kemsta/go-easyrsa/storage/fs"
 )
 
-// ErrNotImplemented is returned by PKI methods not yet implemented.
-var ErrNotImplemented = errors.New("not implemented")
-
 // PKI orchestrates all certificate operations.
 // All storage dependencies are private — callers interact only through PKI methods.
 type PKI struct {

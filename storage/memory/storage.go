@@ -64,7 +64,10 @@ func (ks *KeyStorage) GetByName(name string) ([]*cert.Pair, error) {
 		return nil, storage.ErrNotFound
 	}
 	result := make([]*cert.Pair, len(pairs))
-	copy(result, pairs)
+	for i, p := range pairs {
+		cp := *p
+		result[i] = &cp
+	}
 	return result, nil
 }
 
@@ -75,7 +78,8 @@ func (ks *KeyStorage) GetLastByName(name string) (*cert.Pair, error) {
 	if len(pairs) == 0 {
 		return nil, storage.ErrNotFound
 	}
-	return pairs[len(pairs)-1], nil
+	cp := *pairs[len(pairs)-1]
+	return &cp, nil
 }
 
 func (ks *KeyStorage) GetBySerial(serial *big.Int) (*cert.Pair, error) {
@@ -85,7 +89,8 @@ func (ks *KeyStorage) GetBySerial(serial *big.Int) (*cert.Pair, error) {
 	if !ok {
 		return nil, storage.ErrNotFound
 	}
-	return pair, nil
+	cp := *pair
+	return &cp, nil
 }
 
 func (ks *KeyStorage) DeleteByName(name string) error {

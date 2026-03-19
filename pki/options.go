@@ -34,25 +34,12 @@ type options struct {
 	ipAddresses []net.IP
 	emailAddrs  []string
 
-	// SAN behaviour
-	autoSAN     bool // derive SAN from CN (DNS or IP based on format)
-	sanCritical bool
-
-	// Extension criticality overrides
-	bcCritical  bool // basicConstraints
-	kuCritical  bool // keyUsage
-	ekuCritical bool // extendedKeyUsage
-
 	// CSR signing behaviour (used by SignReq)
 	copyCSRExtensions bool       // copy extensions from CSR (e.g. SANs)
 	subjectOverride   *pkix.Name // replace subject DN when signing
-	preserveDN        bool       // preserve CSR DN field order instead of CA order
 
 	// Sub-CA path length constraint (used by BuildCA for intermediate CAs)
 	subCAPathLen *int // nil = no constraint; 0 = no further intermediates
-
-	// PKCS#12 export
-	p12FriendlyName string
 
 	// Escape hatch: applied last, after all named options
 	certModifiers []func(*x509.Certificate)
@@ -119,11 +106,6 @@ func WithSubjectSerial(serial string) Option {
 	return func(o *options) { o.subjectSerial = serial }
 }
 
-// WithAutoSAN derives a SAN from the CN automatically.
-func WithAutoSAN() Option {
-	return func(o *options) { o.autoSAN = true }
-}
-
 // WithDNSNames adds DNS SANs.
 func WithDNSNames(names ...string) Option {
 	return func(o *options) { o.dnsNames = append(o.dnsNames, names...) }
@@ -139,26 +121,6 @@ func WithEmailAddresses(addrs ...string) Option {
 	return func(o *options) { o.emailAddrs = append(o.emailAddrs, addrs...) }
 }
 
-// WithSANCritical marks the SAN extension as critical.
-func WithSANCritical() Option {
-	return func(o *options) { o.sanCritical = true }
-}
-
-// WithBasicConstraintsCritical marks the basicConstraints extension as critical.
-func WithBasicConstraintsCritical() Option {
-	return func(o *options) { o.bcCritical = true }
-}
-
-// WithKeyUsageCritical marks the keyUsage extension as critical.
-func WithKeyUsageCritical() Option {
-	return func(o *options) { o.kuCritical = true }
-}
-
-// WithExtKeyUsageCritical marks the extendedKeyUsage extension as critical.
-func WithExtKeyUsageCritical() Option {
-	return func(o *options) { o.ekuCritical = true }
-}
-
 // WithCopyCSRExtensions copies extensions from the CSR when signing (including SANs).
 func WithCopyCSRExtensions() Option {
 	return func(o *options) { o.copyCSRExtensions = true }
@@ -169,20 +131,10 @@ func WithSubjectOverride(name pkix.Name) Option {
 	return func(o *options) { o.subjectOverride = &name }
 }
 
-// WithPreserveDN preserves CSR DN field order instead of using CA field order.
-func WithPreserveDN() Option {
-	return func(o *options) { o.preserveDN = true }
-}
-
 // WithSubCAPathLen sets the path length constraint for a sub-CA certificate.
 // n=0 means no further intermediates are allowed.
 func WithSubCAPathLen(n int) Option {
 	return func(o *options) { o.subCAPathLen = &n }
-}
-
-// WithP12FriendlyName sets the friendly name for PKCS#12 export.
-func WithP12FriendlyName(name string) Option {
-	return func(o *options) { o.p12FriendlyName = name }
 }
 
 // WithCertModifier provides direct access to the x509.Certificate template
