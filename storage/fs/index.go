@@ -2,10 +2,12 @@ package fs
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/x509/pkix"
 	"fmt"
 	"math/big"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -108,21 +110,37 @@ func (db *IndexDB) readAll() ([]storage.IndexEntry, error) {
 }
 
 func (db *IndexDB) writeAll(entries []storage.IndexEntry) error {
-	f, err := os.Create(db.path)
+	var buf bytes.Buffer
+	for _, e := range entries {
+		fmt.Fprintln(&buf, formatIndexEntry(e))
+	}
+	return writeAtomic(db.path, buf.Bytes())
+}
+
+// writeAtomic writes data to path atomically: it writes to a temporary file in
+// the same directory, fsyncs, then renames. On POSIX systems rename is atomic —
+// either the old file is intact or the new file is fully written.
+func writeAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".idx-tmp-")
 	if err != nil {
 		return err
 	}
-	var writeErr error
-	for _, e := range entries {
-		if _, err := fmt.Fprintln(f, formatIndexEntry(e)); err != nil {
-			writeErr = err
-			break
-		}
+	tmpName := tmp.Name()
+	cleanup := func() { tmp.Close(); os.Remove(tmpName) }
+	if _, err := tmp.Write(data); err != nil {
+		cleanup()
+		return err
 	}
-	if closeErr := f.Close(); closeErr != nil && writeErr == nil {
-		writeErr = closeErr
+	if err := tmp.Sync(); err != nil {
+		cleanup()
+		return err
 	}
-	return writeErr
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
 
 // formatIndexEntry formats an IndexEntry as an index.txt line.
@@ -166,7 +184,9 @@ func parseIndexLine(line string) (storage.IndexEntry, error) {
 	}
 
 	serial := new(big.Int)
-	serial.SetString(fields[3], 16)
+	if _, ok := serial.SetString(fields[3], 16); !ok {
+		return storage.IndexEntry{}, fmt.Errorf("index: invalid serial %q", fields[3])
+	}
 
 	subject := parseDNString(fields[5])
 
