@@ -249,10 +249,12 @@ func (db *IndexDB) RecordAndUpdate(newEntry storage.IndexEntry, oldSerial *big.I
 				db.s.entries[i].RevokedAt = revokedAt
 				db.s.entries[i].RevocationReason = reason
 			}
-			return nil
+			break
 		}
 	}
-	return storage.ErrNotFound
+	// If oldSerial is not in the index (e.g. cert was created by an external
+	// tool), we still commit the new entry; the old one simply remains untracked.
+	return nil
 }
 
 func (db *IndexDB) Query(filter storage.IndexFilter) ([]storage.IndexEntry, error) {

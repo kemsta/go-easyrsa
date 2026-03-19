@@ -75,7 +75,6 @@ func (db *IndexDB) RecordAndUpdate(newEntry storage.IndexEntry, oldSerial *big.I
 		return err
 	}
 	entries = append(entries, newEntry)
-	found := false
 	for i, e := range entries {
 		if e.Serial.Cmp(oldSerial) == 0 {
 			entries[i].Status = status
@@ -83,13 +82,11 @@ func (db *IndexDB) RecordAndUpdate(newEntry storage.IndexEntry, oldSerial *big.I
 				entries[i].RevokedAt = revokedAt
 				entries[i].RevocationReason = reason
 			}
-			found = true
 			break
 		}
 	}
-	if !found {
-		return storage.ErrNotFound
-	}
+	// If oldSerial is not in the index (e.g. cert was created by an external
+	// tool), we still commit the new entry; the old one simply remains untracked.
 	return db.writeAll(entries)
 }
 

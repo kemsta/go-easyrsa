@@ -70,9 +70,11 @@ type IndexDB interface {
 	// Update changes the status of the entry identified by serial.
 	// revokedAt and reason are only meaningful when status == StatusRevoked.
 	Update(serial *big.Int, status CertStatus, revokedAt time.Time, reason cert.RevocationReason) error
-	// RecordAndUpdate atomically appends a new entry and updates an existing
-	// entry's status in a single write. This prevents a partial-failure window
-	// where the new entry is committed but the old entry's status update fails.
+	// RecordAndUpdate atomically appends a new entry and, if oldSerial is
+	// found in the index, updates its status — all in a single write. This
+	// prevents a partial-failure window between Record and Update for renewals.
+	// If oldSerial is not in the index (e.g. the cert was created by an
+	// external tool), the new entry is still committed without error.
 	RecordAndUpdate(newEntry IndexEntry, oldSerial *big.Int, status CertStatus, revokedAt time.Time, reason cert.RevocationReason) error
 	Query(filter IndexFilter) ([]IndexEntry, error)
 }
