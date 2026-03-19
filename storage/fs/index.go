@@ -127,7 +127,7 @@ func writeAtomic(path string, data []byte) error {
 		return err
 	}
 	tmpName := tmp.Name()
-	cleanup := func() { tmp.Close(); os.Remove(tmpName) }
+	cleanup := func() { _ = tmp.Close(); _ = os.Remove(tmpName) }
 	if _, err := tmp.Write(data); err != nil {
 		cleanup()
 		return err
@@ -137,7 +137,7 @@ func writeAtomic(path string, data []byte) error {
 		return err
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
+		_ = os.Remove(tmpName)
 		return err
 	}
 	return os.Rename(tmpName, path)
