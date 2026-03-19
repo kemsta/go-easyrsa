@@ -5,6 +5,8 @@ package fs
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -28,29 +30,26 @@ func InitDirs(pkiDir string) error {
 // fsJoin joins path components using the OS separator.
 func fsJoin(elem ...string) string { return filepath.Join(elem...) }
 
-// writeFile writes data to path, creating parent directories as needed.
+// writeFile writes data to path atomically, creating parent directories as needed.
 func writeFile(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0600)
+	return writeAtomic(path, data)
 }
 
-// hexSerial returns n as an uppercase, even-length hex string (e.g. 1 → "01").
-func hexSerial(n *big.Int) string {
-	h := strings.ToUpper(n.Text(16))
-	if len(h)%2 != 0 {
-		h = "0" + h
-	}
-	return h
-}
+// hexSerial is a package-local alias for storage.HexSerial.
+func hexSerial(n *big.Int) string { return storage.HexSerial(n) }
 
 // --- KeyStorage ---
 
 // KeyStorage implements storage.KeyStorage on the filesystem.
+// mu serializes all multi-step read and write operations within a process.
+// Concurrent access from separate processes sharing the same pkiDir is not safe.
 type KeyStorage struct {
 	pkiDir string
 	caName string
+	mu     sync.RWMutex
 }
 
 // NewKeyStorage creates a KeyStorage rooted at pkiDir.
@@ -77,13 +76,24 @@ func (ks *KeyStorage) serialPath(serial *big.Int) string {
 	return fsJoin(ks.pkiDir, "certs_by_serial", hexSerial(serial)+".pem")
 }
 
+func (ks *KeyStorage) nameSidecarPath(serial *big.Int) string {
+	return fsJoin(ks.pkiDir, "certs_by_serial", hexSerial(serial)+".name")
+}
+
 func (ks *KeyStorage) Put(pair *cert.Pair) error {
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
 	if pair.CertPEM != nil {
 		if err := writeFile(ks.certPath(pair.Name), pair.CertPEM); err != nil {
 			return err
 		}
 		if serial, err := pair.Serial(); err == nil {
 			if err := writeFile(ks.serialPath(serial), pair.CertPEM); err != nil {
+				return err
+			}
+			// Store the storage entity name alongside the serial-indexed cert
+			// so GetBySerial can return the correct name even when CN != name.
+			if err := writeFile(ks.nameSidecarPath(serial), []byte(pair.Name)); err != nil {
 				return err
 			}
 		}
@@ -97,6 +107,14 @@ func (ks *KeyStorage) Put(pair *cert.Pair) error {
 }
 
 func (ks *KeyStorage) GetLastByName(name string) (*cert.Pair, error) {
+	ks.mu.RLock()
+	defer ks.mu.RUnlock()
+	return ks.getLastByNameLocked(name)
+}
+
+// getLastByNameLocked is the lock-free implementation called by GetLastByName
+// and DeleteByName (which already hold the appropriate lock).
+func (ks *KeyStorage) getLastByNameLocked(name string) (*cert.Pair, error) {
 	certPEM, err := os.ReadFile(ks.certPath(name))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -147,7 +165,9 @@ func (ks *KeyStorage) getFromRevoked(name string) (*cert.Pair, error) {
 }
 
 func (ks *KeyStorage) GetByName(name string) ([]*cert.Pair, error) {
-	pair, err := ks.GetLastByName(name)
+	ks.mu.RLock()
+	defer ks.mu.RUnlock()
+	pair, err := ks.getLastByNameLocked(name)
 	if err != nil {
 		return nil, err
 	}
@@ -155,6 +175,8 @@ func (ks *KeyStorage) GetByName(name string) ([]*cert.Pair, error) {
 }
 
 func (ks *KeyStorage) GetBySerial(serial *big.Int) (*cert.Pair, error) {
+	ks.mu.RLock()
+	defer ks.mu.RUnlock()
 	certPEM, err := os.ReadFile(ks.serialPath(serial))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -170,7 +192,16 @@ func (ks *KeyStorage) GetBySerial(serial *big.Int) (*cert.Pair, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Prefer the sidecar name file written by Put so that the storage key
+	// (entity name) is returned instead of the Subject CN, which may differ
+	// in org mode when WithSubjectOverride sets a custom CN.
 	name := c.Subject.CommonName
+	hexStr := hexSerial(serial)
+	if data, err := os.ReadFile(fsJoin(ks.pkiDir, "certs_by_serial", hexStr+".name")); err == nil {
+		if n := strings.TrimSpace(string(data)); n != "" {
+			name = n
+		}
+	}
 	pair := &cert.Pair{Name: name, CertPEM: certPEM}
 	if keyPEM, err := os.ReadFile(ks.keyPath(name)); err == nil {
 		pair.KeyPEM = keyPEM
@@ -179,12 +210,15 @@ func (ks *KeyStorage) GetBySerial(serial *big.Int) (*cert.Pair, error) {
 }
 
 func (ks *KeyStorage) DeleteByName(name string) error {
-	pair, err := ks.GetLastByName(name)
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
+	pair, err := ks.getLastByNameLocked(name)
 	if err != nil {
 		return err
 	}
 	if serial, err := pair.Serial(); err == nil {
-		_ = os.Remove(ks.serialPath(serial)) // best-effort
+		_ = os.Remove(ks.serialPath(serial))      // best-effort
+		_ = os.Remove(ks.nameSidecarPath(serial)) // best-effort
 	}
 	var firstErr error
 	if err := os.Remove(ks.certPath(name)); err != nil && !os.IsNotExist(err) {
@@ -197,16 +231,111 @@ func (ks *KeyStorage) DeleteByName(name string) error {
 }
 
 func (ks *KeyStorage) DeleteBySerial(serial *big.Int) error {
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
 	if err := os.Remove(ks.serialPath(serial)); err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	_ = os.Remove(ks.nameSidecarPath(serial)) // best-effort
 	return nil
 }
 
+// CleanOrphans removes certificate and key files whose serial is not in knownSerials.
+// It scans certs_by_serial/, issued/, and the CA cert. Errors from individual file
+// removals are accumulated and returned as a joined error.
+func (ks *KeyStorage) CleanOrphans(knownSerials map[string]bool) error {
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
+
+	var errs []error
+
+	// 1. Scan certs_by_serial/ — remove .pem and .name files for unknown serials.
+	serialDir := fsJoin(ks.pkiDir, "certs_by_serial")
+	if entries, err := os.ReadDir(serialDir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			var serial string
+			switch {
+			case strings.HasSuffix(name, ".pem"):
+				serial = strings.TrimSuffix(name, ".pem")
+			case strings.HasSuffix(name, ".name"):
+				serial = strings.TrimSuffix(name, ".name")
+			default:
+				continue
+			}
+			if !knownSerials[serial] {
+				if err := os.Remove(fsJoin(serialDir, name)); err != nil && !os.IsNotExist(err) {
+					errs = append(errs, err)
+				}
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		errs = append(errs, fmt.Errorf("reading certs_by_serial: %w", err))
+	}
+
+	// 2. Scan issued/*.crt — parse cert, check serial, remove orphaned cert.
+	// Private keys are NOT removed here: the key file may be shared with a
+	// valid cert for the same entity name (e.g. after a renew).
+	issuedDir := fsJoin(ks.pkiDir, "issued")
+	if entries, err := os.ReadDir(issuedDir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".crt") {
+				continue
+			}
+			certPath := fsJoin(issuedDir, e.Name())
+			serial, err := serialFromCertFile(certPath)
+			if err != nil {
+				continue // skip unparseable files
+			}
+			if !knownSerials[hexSerial(serial)] {
+				if err := os.Remove(certPath); err != nil && !os.IsNotExist(err) {
+					errs = append(errs, err)
+				}
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		errs = append(errs, fmt.Errorf("reading issued: %w", err))
+	}
+
+	// 3. Check ca.crt.
+	caPath := fsJoin(ks.pkiDir, "ca.crt")
+	if serial, err := serialFromCertFile(caPath); err == nil {
+		if !knownSerials[hexSerial(serial)] {
+			if err := os.Remove(caPath); err != nil && !os.IsNotExist(err) {
+				errs = append(errs, err)
+			}
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// serialFromCertFile reads a PEM certificate file and returns its serial number.
+func serialFromCertFile(path string) (*big.Int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, errors.New("no PEM block")
+	}
+	c, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	return c.SerialNumber, nil
+}
+
 func (ks *KeyStorage) GetAll() ([]*cert.Pair, error) {
+	ks.mu.RLock()
+	defer ks.mu.RUnlock()
 	var pairs []*cert.Pair
 
-	if caPair, err := ks.GetLastByName(ks.caName); err == nil {
+	if caPair, err := ks.getLastByNameLocked(ks.caName); err == nil {
 		pairs = append(pairs, caPair)
 	}
 
@@ -223,7 +352,7 @@ func (ks *KeyStorage) GetAll() ([]*cert.Pair, error) {
 			continue
 		}
 		name := strings.TrimSuffix(e.Name(), ".crt")
-		if pair, err := ks.GetLastByName(name); err == nil {
+		if pair, err := ks.getLastByNameLocked(name); err == nil {
 			pairs = append(pairs, pair)
 		}
 	}
@@ -314,11 +443,13 @@ func (sp *SerialProvider) Next() (*big.Int, error) {
 
 	hexStr := strings.TrimSpace(string(data))
 	n := new(big.Int)
-	n.SetString(hexStr, 16)
+	if _, ok := n.SetString(hexStr, 16); !ok || n.Sign() <= 0 {
+		return nil, fmt.Errorf("storage/fs: invalid serial in file: %q", hexStr)
+	}
 
 	next := new(big.Int).Add(n, big.NewInt(1))
 	nextHex := hexSerial(next)
-	if err := os.WriteFile(sp.path, []byte(nextHex+"\n"), 0644); err != nil {
+	if err := writeAtomic(sp.path, []byte(nextHex+"\n")); err != nil {
 		return nil, err
 	}
 	return n, nil
@@ -337,7 +468,15 @@ func NewCRLHolder(pkiDir string) *CRLHolder {
 }
 
 func (ch *CRLHolder) Put(pemBytes []byte) error {
-	return os.WriteFile(ch.path, pemBytes, 0644)
+	return writeAtomic(ch.path, pemBytes)
+}
+
+func (ch *CRLHolder) Delete() error {
+	err := os.Remove(ch.path)
+	if err != nil && os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 func (ch *CRLHolder) Get() (*x509.RevocationList, error) {
@@ -350,7 +489,7 @@ func (ch *CRLHolder) Get() (*x509.RevocationList, error) {
 	}
 	block, _ := pem.Decode(data)
 	if block == nil {
-		return &x509.RevocationList{}, nil
+		return nil, errors.New("crl: file exists but contains no valid PEM block")
 	}
 	return x509.ParseRevocationList(block.Bytes)
 }
