@@ -21,6 +21,7 @@ func (p *PKI) Revoke(name string, reason cert.RevocationReason) error {
 		return err
 	}
 	now := time.Now()
+	var firstErr error
 	for _, pair := range pairs {
 		if pair.CertPEM == nil {
 			continue
@@ -29,10 +30,14 @@ func (p *PKI) Revoke(name string, reason cert.RevocationReason) error {
 		if err != nil {
 			continue
 		}
-		_ = p.index.Update(serial, storage.StatusRevoked, now, reason)
+		if err := p.index.Update(serial, storage.StatusRevoked, now, reason); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
-	_, err = p.GenCRL()
-	return err
+	if _, err = p.GenCRL(); err != nil {
+		return err
+	}
+	return firstErr
 }
 
 // RevokeBySerial revokes the certificate identified by the given serial number.
@@ -57,7 +62,9 @@ func (p *PKI) RevokeExpired(name string, reason cert.RevocationReason) error {
 	}
 	now := time.Now()
 	for _, e := range entries {
-		_ = p.index.Update(e.Serial, storage.StatusRevoked, now, reason)
+		if err := p.index.Update(e.Serial, storage.StatusRevoked, now, reason); err != nil {
+			return err
+		}
 	}
 	_, err = p.GenCRL()
 	return err

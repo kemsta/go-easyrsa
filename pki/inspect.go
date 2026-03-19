@@ -97,7 +97,9 @@ func (p *PKI) UpdateDB() error {
 	now := time.Now()
 	for _, e := range entries {
 		if e.ExpiresAt.Before(now) {
-			_ = p.index.Update(e.Serial, storage.StatusExpired, time.Time{}, 0)
+			if err := p.index.Update(e.Serial, storage.StatusExpired, time.Time{}, 0); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

@@ -3,6 +3,7 @@ package pki_test
 import (
 	"crypto/elliptic"
 	"crypto/x509"
+	"math/big"
 	"testing"
 	"time"
 
@@ -11,8 +12,27 @@ import (
 
 	"github.com/kemsta/go-easyrsa/cert"
 	"github.com/kemsta/go-easyrsa/pki"
+	"github.com/kemsta/go-easyrsa/storage"
 	"github.com/kemsta/go-easyrsa/storage/memory"
 )
+
+// errUpdateIndexDB wraps an IndexDB but always returns errOnUpdate from Update.
+type errUpdateIndexDB struct {
+	inner       storage.IndexDB
+	errOnUpdate error
+}
+
+func (e *errUpdateIndexDB) Record(entry storage.IndexEntry) error {
+	return e.inner.Record(entry)
+}
+
+func (e *errUpdateIndexDB) Update(_ *big.Int, _ storage.CertStatus, _ time.Time, _ cert.RevocationReason) error {
+	return e.errOnUpdate
+}
+
+func (e *errUpdateIndexDB) Query(filter storage.IndexFilter) ([]storage.IndexEntry, error) {
+	return e.inner.Query(filter)
+}
 
 // newTestPKI creates a PKI instance backed by in-memory storage.
 func newTestPKI(cfg pki.Config) *pki.PKI {
@@ -351,6 +371,19 @@ func TestRevoke_NotFound(t *testing.T) {
 	p := newTestPKI(pki.Config{NoPass: true})
 	buildTestCA(t, p)
 	err := p.Revoke("notexist", cert.ReasonUnspecified)
+	assert.Error(t, err)
+}
+
+func TestRevoke_IndexNotFound(t *testing.T) {
+	ks, cs, idx, sp, crl := memory.New()
+	errIdx := &errUpdateIndexDB{inner: idx, errOnUpdate: storage.ErrNotFound}
+	p := pki.New(pki.Config{NoPass: true}, ks, cs, errIdx, sp, crl)
+
+	buildTestCA(t, p)
+	_, err := p.BuildClientFull("client1")
+	require.NoError(t, err)
+
+	err = p.Revoke("client1", cert.ReasonUnspecified)
 	assert.Error(t, err)
 }
 
