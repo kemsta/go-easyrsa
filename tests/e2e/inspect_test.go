@@ -76,6 +76,24 @@ func TestShowRevoked(t *testing.T) {
 	assert.Len(t, pairs, 1)
 }
 
+// TestVerifyCert_Revoked — Pattern B: easy-rsa writes+revokes+gen-crl, go-easyrsa verifies.
+func TestVerifyCert_Revoked(t *testing.T) {
+	pkiDir := t.TempDir()
+	er := testutil.NewRunner(t, pkiDir)
+	er.Run("init-pki")
+	er.Run("build-ca", "nopass")
+	er.Run("build-client-full", "client1", "nopass")
+	er.Run("revoke", "client1")
+	er.Run("gen-crl")
+
+	p, err := pki.NewWithFS(pkiDir, pki.Config{})
+	require.NoError(t, err)
+
+	err = p.VerifyCert("client1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "revoked")
+}
+
 // TestVerifyCert — Pattern B: easy-rsa writes, go-easyrsa verifies.
 func TestVerifyCert(t *testing.T) {
 	pkiDir := t.TempDir()

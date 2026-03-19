@@ -2,6 +2,7 @@ package pki
 
 import (
 	"crypto/x509"
+	"errors"
 	"time"
 
 	"github.com/kemsta/go-easyrsa/cert"
@@ -84,7 +85,27 @@ func (p *PKI) VerifyCert(name string) error {
 		Roots:     pool,
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	})
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Check CRL if available.
+	crl, err := p.crlHolder.Get()
+	if err != nil {
+		return err
+	}
+	if len(crl.RevokedCertificateEntries) > 0 {
+		serial, err := pair.Serial()
+		if err != nil {
+			return err
+		}
+		for _, e := range crl.RevokedCertificateEntries {
+			if e.SerialNumber.Cmp(serial) == 0 {
+				return errors.New("pki: certificate is revoked")
+			}
+		}
+	}
+	return nil
 }
 
 // UpdateDB scans issued certificates and marks expired ones as expired in the index.

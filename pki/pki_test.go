@@ -528,6 +528,20 @@ func TestVerifyCert_NotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestVerifyCert_Revoked(t *testing.T) {
+	p := newTestPKI(pki.Config{NoPass: true})
+	buildTestCA(t, p)
+	_, err := p.BuildClientFull("client1")
+	require.NoError(t, err)
+
+	err = p.Revoke("client1", cert.ReasonUnspecified)
+	require.NoError(t, err)
+
+	err = p.VerifyCert("client1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "revoked")
+}
+
 // --- UpdateDB ---
 
 func TestUpdateDB_NoExpired(t *testing.T) {
