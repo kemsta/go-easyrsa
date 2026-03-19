@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/kemsta/go-easyrsa/cert"
 	"github.com/kemsta/go-easyrsa/storage"
@@ -183,11 +184,16 @@ func (ks *KeyStorage) DeleteByName(name string) error {
 		return err
 	}
 	if serial, err := pair.Serial(); err == nil {
-		_ = os.Remove(ks.serialPath(serial))
+		_ = os.Remove(ks.serialPath(serial)) // best-effort
 	}
-	_ = os.Remove(ks.certPath(name))
-	_ = os.Remove(ks.keyPath(name))
-	return nil
+	var firstErr error
+	if err := os.Remove(ks.certPath(name)); err != nil && !os.IsNotExist(err) {
+		firstErr = err
+	}
+	if err := os.Remove(ks.keyPath(name)); err != nil && !os.IsNotExist(err) && firstErr == nil {
+		firstErr = err
+	}
+	return firstErr
 }
 
 func (ks *KeyStorage) DeleteBySerial(serial *big.Int) error {
@@ -283,8 +289,11 @@ func (cs *CSRStorage) ListCSRs() ([]string, error) {
 // --- SerialProvider ---
 
 // SerialProvider implements storage.SerialProvider using a serial file.
+// Concurrent calls within the same process are serialized by mu.
+// Concurrent access from separate processes sharing the same pkiDir is not safe.
 type SerialProvider struct {
 	path string
+	mu   sync.Mutex
 }
 
 // NewSerialProvider creates a SerialProvider backed by pkiDir/serial.
@@ -293,6 +302,8 @@ func NewSerialProvider(pkiDir string) *SerialProvider {
 }
 
 func (sp *SerialProvider) Next() (*big.Int, error) {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
 	data, err := os.ReadFile(sp.path)
 	if err != nil {
 		if !os.IsNotExist(err) {
