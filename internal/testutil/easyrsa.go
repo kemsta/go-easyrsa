@@ -75,7 +75,9 @@ func (r *Runner) Run(args ...string) string {
 // RunE executes easy-rsa and returns combined output and error without failing the test.
 func (r *Runner) RunE(args ...string) (string, error) {
 	r.T.Helper()
-	cmdArgs := append([]string{"--batch"}, args...)
+	cmdArgs := make([]string, 0, 1+len(args))
+	cmdArgs = append(cmdArgs, "--batch")
+	cmdArgs = append(cmdArgs, args...)
 	cmd := exec.Command(r.Binary, cmdArgs...)
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("EASYRSA_PKI=%s", r.PKIDir),
