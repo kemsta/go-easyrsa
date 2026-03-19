@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -100,9 +101,14 @@ func (p *PKI) GenCRL() ([]byte, error) {
 		})
 	}
 
-	// Determine the CRL number.
+	// Determine the CRL number. A missing CRL starts at 1; any read error is fatal
+	// to prevent silent CRL number resets (RFC 5280 § 5.2.3 requires monotonic increase).
 	crlNumber := big.NewInt(1)
-	if existing, err := p.crlHolder.Get(); err == nil && existing.Number != nil {
+	existing, err := p.crlHolder.Get()
+	if err != nil {
+		return nil, fmt.Errorf("pki: read existing CRL: %w", err)
+	}
+	if existing.Number != nil {
 		crlNumber = new(big.Int).Add(existing.Number, big.NewInt(1))
 	}
 

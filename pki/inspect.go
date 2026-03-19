@@ -3,6 +3,7 @@ package pki
 import (
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/kemsta/go-easyrsa/cert"
@@ -28,16 +29,18 @@ func (p *PKI) ShowExpiring(withinDays int) ([]*cert.Pair, error) {
 	}
 	cutoff := time.Now().AddDate(0, 0, withinDays)
 	var pairs []*cert.Pair
+	var errs []error
 	for _, e := range entries {
 		if e.ExpiresAt.Before(cutoff) {
 			pair, err := p.storage.GetBySerial(e.Serial)
 			if err != nil {
+				errs = append(errs, fmt.Errorf("serial %s: %w", e.Serial.Text(16), err))
 				continue
 			}
 			pairs = append(pairs, pair)
 		}
 	}
-	return pairs, nil
+	return pairs, errors.Join(errs...)
 }
 
 // ShowRevoked returns all revoked certificate pairs.
@@ -48,14 +51,16 @@ func (p *PKI) ShowRevoked() ([]*cert.Pair, error) {
 		return nil, err
 	}
 	var pairs []*cert.Pair
+	var errs []error
 	for _, e := range entries {
 		pair, err := p.storage.GetBySerial(e.Serial)
 		if err != nil {
+			errs = append(errs, fmt.Errorf("serial %s: %w", e.Serial.Text(16), err))
 			continue
 		}
 		pairs = append(pairs, pair)
 	}
-	return pairs, nil
+	return pairs, errors.Join(errs...)
 }
 
 // VerifyCert verifies the certificate chain for the named certificate.

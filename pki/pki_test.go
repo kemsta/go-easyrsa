@@ -4,6 +4,7 @@ import (
 	"crypto/elliptic"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"math/big"
 	"testing"
 	"time"
@@ -714,4 +715,70 @@ func TestSetPass_ChangeBack(t *testing.T) {
 
 	err = p.SetPass("client1", "newpassword", "")
 	require.NoError(t, err)
+}
+
+// errCRLHolder wraps a CRLHolder but always returns errOnGet from Get.
+type errCRLHolder struct {
+	inner    storage.CRLHolder
+	errOnGet error
+}
+
+func (e *errCRLHolder) Put(pemBytes []byte) error { return e.inner.Put(pemBytes) }
+func (e *errCRLHolder) Get() (*x509.RevocationList, error) {
+	return nil, e.errOnGet
+}
+
+// TestShowExpiring_StorageGap verifies that ShowExpiring returns a non-nil
+// error when the key storage is missing a cert referenced by the index.
+func TestShowExpiring_StorageGap(t *testing.T) {
+	ks, cs, idx, sp, crl := memory.New()
+	p := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+
+	buildTestCA(t, p)
+	pair, err := p.BuildClientFull("client1", pki.WithDays(1))
+	require.NoError(t, err)
+
+	serial, err := pair.Serial()
+	require.NoError(t, err)
+
+	// Remove the cert from storage so GetBySerial fails.
+	require.NoError(t, ks.DeleteBySerial(serial))
+
+	_, err = p.ShowExpiring(2)
+	assert.Error(t, err)
+}
+
+// TestShowRevoked_StorageGap verifies that ShowRevoked returns a non-nil
+// error when the key storage is missing a revoked cert referenced by the index.
+func TestShowRevoked_StorageGap(t *testing.T) {
+	ks, cs, idx, sp, crl := memory.New()
+	p := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+
+	buildTestCA(t, p)
+	pair, err := p.BuildClientFull("client1")
+	require.NoError(t, err)
+
+	err = p.Revoke("client1", cert.ReasonUnspecified)
+	require.NoError(t, err)
+
+	serial, err := pair.Serial()
+	require.NoError(t, err)
+
+	// Remove the cert from storage so GetBySerial fails.
+	require.NoError(t, ks.DeleteBySerial(serial))
+
+	_, err = p.ShowRevoked()
+	assert.Error(t, err)
+}
+
+// TestGenCRL_CorruptCRL verifies that GenCRL returns an error when the
+// existing CRL cannot be read, preventing silent CRL number resets.
+func TestGenCRL_CorruptCRL(t *testing.T) {
+	ks, cs, idx, sp, innerCRL := memory.New()
+	badCRL := &errCRLHolder{inner: innerCRL, errOnGet: errors.New("disk error")}
+	p := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, badCRL)
+
+	buildTestCA(t, p)
+	_, err := p.GenCRL()
+	assert.Error(t, err)
 }
