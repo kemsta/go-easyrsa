@@ -2,11 +2,11 @@ package storage
 
 import (
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
 	"math/big"
+	"strings"
 	"time"
-
-	"crypto/x509/pkix"
 
 	"github.com/kemsta/go-easyrsa/cert"
 )
@@ -70,7 +70,20 @@ type IndexDB interface {
 	// Update changes the status of the entry identified by serial.
 	// revokedAt and reason are only meaningful when status == StatusRevoked.
 	Update(serial *big.Int, status CertStatus, revokedAt time.Time, reason cert.RevocationReason) error
+	// RecordAndUpdate atomically appends a new entry and updates an existing
+	// entry's status in a single write. This prevents a partial-failure window
+	// where the new entry is committed but the old entry's status update fails.
+	RecordAndUpdate(newEntry IndexEntry, oldSerial *big.Int, status CertStatus, revokedAt time.Time, reason cert.RevocationReason) error
 	Query(filter IndexFilter) ([]IndexEntry, error)
+}
+
+// HexSerial returns n as an uppercase, even-length hex string (e.g. 1 → "01").
+func HexSerial(n *big.Int) string {
+	h := strings.ToUpper(n.Text(16))
+	if len(h)%2 != 0 {
+		h = "0" + h
+	}
+	return h
 }
 
 // SerialProvider generates monotonically increasing serial numbers.

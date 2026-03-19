@@ -47,10 +47,28 @@ type KeyStorage struct{ s *store }
 func (ks *KeyStorage) Put(pair *cert.Pair) error {
 	ks.s.mu.Lock()
 	defer ks.s.mu.Unlock()
-	ks.s.pairs[pair.Name] = append(ks.s.pairs[pair.Name], pair)
 	if pair.CertPEM != nil {
+		// Upsert: remove all existing pairs for this name and clean up bySerial.
+		for _, p := range ks.s.pairs[pair.Name] {
+			if p.CertPEM != nil {
+				if serial, err := p.Serial(); err == nil {
+					delete(ks.s.bySerial, hexSerial(serial))
+				}
+			}
+		}
+		ks.s.pairs[pair.Name] = nil
 		if serial, err := pair.Serial(); err == nil {
 			ks.s.bySerial[hexSerial(serial)] = pair
+		}
+		ks.s.pairs[pair.Name] = append(ks.s.pairs[pair.Name], pair)
+	} else {
+		// Key-only put (GenReq): update the key in the most recent existing pair
+		// rather than appending, so GetLastByName continues to return the cert.
+		existing := ks.s.pairs[pair.Name]
+		if len(existing) > 0 {
+			existing[len(existing)-1].KeyPEM = pair.KeyPEM
+		} else {
+			ks.s.pairs[pair.Name] = append(ks.s.pairs[pair.Name], pair)
 		}
 	}
 	return nil
@@ -194,6 +212,9 @@ type IndexDB struct{ s *store }
 func (db *IndexDB) Record(entry storage.IndexEntry) error {
 	db.s.mu.Lock()
 	defer db.s.mu.Unlock()
+	if entry.Serial != nil {
+		entry.Serial = new(big.Int).Set(entry.Serial)
+	}
 	db.s.entries = append(db.s.entries, entry)
 	return nil
 }
@@ -203,6 +224,26 @@ func (db *IndexDB) Update(serial *big.Int, status storage.CertStatus, revokedAt 
 	defer db.s.mu.Unlock()
 	for i, e := range db.s.entries {
 		if e.Serial.Cmp(serial) == 0 {
+			db.s.entries[i].Status = status
+			if status == storage.StatusRevoked {
+				db.s.entries[i].RevokedAt = revokedAt
+				db.s.entries[i].RevocationReason = reason
+			}
+			return nil
+		}
+	}
+	return storage.ErrNotFound
+}
+
+func (db *IndexDB) RecordAndUpdate(newEntry storage.IndexEntry, oldSerial *big.Int, status storage.CertStatus, revokedAt time.Time, reason cert.RevocationReason) error {
+	db.s.mu.Lock()
+	defer db.s.mu.Unlock()
+	if newEntry.Serial != nil {
+		newEntry.Serial = new(big.Int).Set(newEntry.Serial)
+	}
+	db.s.entries = append(db.s.entries, newEntry)
+	for i, e := range db.s.entries {
+		if e.Serial.Cmp(oldSerial) == 0 {
 			db.s.entries[i].Status = status
 			if status == storage.StatusRevoked {
 				db.s.entries[i].RevokedAt = revokedAt
@@ -224,6 +265,9 @@ func (db *IndexDB) Query(filter storage.IndexFilter) ([]storage.IndexEntry, erro
 		}
 		if filter.Name != "" && e.Subject.CommonName != filter.Name {
 			continue
+		}
+		if e.Serial != nil {
+			e.Serial = new(big.Int).Set(e.Serial)
 		}
 		result = append(result, e)
 	}
@@ -268,20 +312,5 @@ func (ch *CRLHolder) Get() (*x509.RevocationList, error) {
 	return x509.ParseRevocationList(block.Bytes)
 }
 
-// hexSerial returns the serial as uppercase even-length hex (e.g. 1 → "01").
-func hexSerial(n *big.Int) string {
-	h := n.Text(16)
-	if len(h)%2 != 0 {
-		h = "0" + h
-	}
-	// uppercase
-	result := make([]byte, len(h))
-	for i, c := range h {
-		if c >= 'a' && c <= 'f' {
-			result[i] = byte(c - 32)
-		} else {
-			result[i] = byte(c)
-		}
-	}
-	return string(result)
-}
+// hexSerial is a package-local alias for storage.HexSerial.
+func hexSerial(n *big.Int) string { return storage.HexSerial(n) }

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kemsta/go-easyrsa/cert"
@@ -19,8 +20,10 @@ import (
 const indexTimeFormat = "060102150405Z"
 
 // IndexDB implements storage.IndexDB using an OpenSSL-compatible index.txt file.
+// Concurrent access within the same process is serialized by mu.
 type IndexDB struct {
 	path string
+	mu   sync.RWMutex
 }
 
 // NewIndexDB creates an IndexDB backed by pkiDir/index.txt.
@@ -29,18 +32,19 @@ func NewIndexDB(pkiDir string) *IndexDB {
 }
 
 func (db *IndexDB) Record(entry storage.IndexEntry) error {
-	f, err := os.OpenFile(db.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	entries, err := db.readAll()
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(f, formatIndexEntry(entry))
-	if closeErr := f.Close(); closeErr != nil && err == nil {
-		err = closeErr
-	}
-	return err
+	entries = append(entries, entry)
+	return db.writeAll(entries)
 }
 
 func (db *IndexDB) Update(serial *big.Int, status storage.CertStatus, revokedAt time.Time, reason cert.RevocationReason) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
 	entries, err := db.readAll()
 	if err != nil {
 		return err
@@ -63,7 +67,35 @@ func (db *IndexDB) Update(serial *big.Int, status storage.CertStatus, revokedAt 
 	return db.writeAll(entries)
 }
 
+func (db *IndexDB) RecordAndUpdate(newEntry storage.IndexEntry, oldSerial *big.Int, status storage.CertStatus, revokedAt time.Time, reason cert.RevocationReason) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	entries, err := db.readAll()
+	if err != nil {
+		return err
+	}
+	entries = append(entries, newEntry)
+	found := false
+	for i, e := range entries {
+		if e.Serial.Cmp(oldSerial) == 0 {
+			entries[i].Status = status
+			if status == storage.StatusRevoked {
+				entries[i].RevokedAt = revokedAt
+				entries[i].RevocationReason = reason
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		return storage.ErrNotFound
+	}
+	return db.writeAll(entries)
+}
+
 func (db *IndexDB) Query(filter storage.IndexFilter) ([]storage.IndexEntry, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
 	entries, err := db.readAll()
 	if err != nil {
 		return nil, err
@@ -91,14 +123,17 @@ func (db *IndexDB) readAll() ([]storage.IndexEntry, error) {
 	}
 	var entries []storage.IndexEntry
 	scanner := bufio.NewScanner(f)
+	lineNum := 0
 	for scanner.Scan() {
+		lineNum++
 		line := scanner.Text()
 		if line == "" {
 			continue
 		}
 		e, err := parseIndexLine(line)
 		if err != nil {
-			continue // skip malformed lines
+			_ = f.Close()
+			return nil, fmt.Errorf("index.txt line %d: %w", lineNum, err)
 		}
 		entries = append(entries, e)
 	}
