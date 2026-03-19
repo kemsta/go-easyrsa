@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
-	"net"
 	"time"
 
 	"github.com/kemsta/go-easyrsa/cert"
@@ -46,7 +45,7 @@ func (p *PKI) GenReq(name string, opts ...Option) (csrPEM []byte, err error) {
 	template := &x509.CertificateRequest{
 		Subject:        subject,
 		DNSNames:       o.dnsNames,
-		IPAddresses:    parseIPs(o.ipAddresses),
+		IPAddresses:    o.ipAddresses,
 		EmailAddresses: o.emailAddrs,
 	}
 
@@ -183,7 +182,7 @@ func (p *PKI) SignReq(name string, certType cert.CertType, opts ...Option) (*cer
 		template.DNSNames = o.dnsNames
 	}
 	if len(o.ipAddresses) > 0 {
-		template.IPAddresses = parseIPs(o.ipAddresses)
+		template.IPAddresses = o.ipAddresses
 	}
 	if len(o.emailAddrs) > 0 {
 		template.EmailAddresses = o.emailAddrs
@@ -226,5 +225,3 @@ func (p *PKI) SignReq(name string, certType cert.CertType, opts ...Option) (*cer
 	return pair, nil
 }
 
-// parseIPs is a no-op passthrough for []net.IP — kept for call-site clarity.
-func parseIPs(ips []net.IP) []net.IP { return ips }

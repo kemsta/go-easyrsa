@@ -47,8 +47,8 @@ func (p *Pair) Certificate() (*x509.Certificate, error) {
 	return x509.ParseCertificate(block.Bytes)
 }
 
-// PrivateKey parses KeyPEM using PKCS8, supporting RSA, ECDSA, and Ed25519.
-// Returns an error if KeyPEM is nil.
+// PrivateKey parses KeyPEM as unencrypted PKCS8.
+// If the key was stored with a passphrase, use pkicrypto.UnmarshalPrivateKey instead.
 func (p *Pair) PrivateKey() (crypto.PrivateKey, error) {
 	if p.KeyPEM == nil {
 		return nil, errors.New("cert: no private key available")

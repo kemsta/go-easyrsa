@@ -131,7 +131,10 @@ func (ks *KeyStorage) GetAll() ([]*cert.Pair, error) {
 	defer ks.s.mu.RUnlock()
 	var result []*cert.Pair
 	for _, pairs := range ks.s.pairs {
-		result = append(result, pairs...)
+		for _, p := range pairs {
+			pCopy := *p
+			result = append(result, &pCopy)
+		}
 	}
 	return result, nil
 }
