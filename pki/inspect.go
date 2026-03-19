@@ -12,6 +12,9 @@ import (
 
 // ShowCert returns the certificate pair for the given name.
 func (p *PKI) ShowCert(name string) (*cert.Pair, error) {
+	if err := validateEntityName(name); err != nil {
+		return nil, err
+	}
 	return p.storage.GetLastByName(name)
 }
 
@@ -65,6 +68,9 @@ func (p *PKI) ShowRevoked() ([]*cert.Pair, error) {
 
 // VerifyCert verifies the certificate chain for the named certificate.
 func (p *PKI) VerifyCert(name string) error {
+	if err := validateEntityName(name); err != nil {
+		return err
+	}
 	pair, err := p.storage.GetLastByName(name)
 	if err != nil {
 		return err
@@ -99,7 +105,10 @@ func (p *PKI) VerifyCert(name string) error {
 	if err != nil {
 		return err
 	}
-	if len(crl.RevokedCertificateEntries) > 0 {
+	if len(crl.Signature) > 0 {
+		if err := crl.CheckSignatureFrom(caCert); err != nil {
+			return fmt.Errorf("pki: CRL signature verification failed: %w", err)
+		}
 		serial, err := pair.Serial()
 		if err != nil {
 			return err
@@ -121,12 +130,13 @@ func (p *PKI) UpdateDB() error {
 		return err
 	}
 	now := time.Now()
+	var errs []error
 	for _, e := range entries {
 		if e.ExpiresAt.Before(now) {
 			if err := p.index.Update(e.Serial, storage.StatusExpired, time.Time{}, 0); err != nil {
-				return err
+				errs = append(errs, err)
 			}
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }

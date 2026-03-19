@@ -17,28 +17,35 @@ import (
 
 // Revoke revokes all certificates stored under the given name.
 func (p *PKI) Revoke(name string, reason cert.RevocationReason) error {
+	if err := validateEntityName(name); err != nil {
+		return err
+	}
 	pairs, err := p.storage.GetByName(name)
 	if err != nil {
 		return err
 	}
 	now := time.Now()
-	var firstErr error
+	var errs []error
 	for _, pair := range pairs {
 		if pair.CertPEM == nil {
 			continue
 		}
 		serial, err := pair.Serial()
 		if err != nil {
+			errs = append(errs, err)
 			continue
 		}
-		if err := p.index.Update(serial, storage.StatusRevoked, now, reason); err != nil && firstErr == nil {
-			firstErr = err
+		if err := p.index.Update(serial, storage.StatusRevoked, now, reason); err != nil {
+			errs = append(errs, err)
 		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return err // index update(s) failed; do not regenerate CRL from inconsistent state (W4)
 	}
 	if _, err = p.GenCRL(); err != nil {
 		return err
 	}
-	return firstErr
+	return nil
 }
 
 // RevokeBySerial revokes the certificate identified by the given serial number.
@@ -54,18 +61,48 @@ func (p *PKI) RevokeBySerial(serial *big.Int, reason cert.RevocationReason) erro
 	return err
 }
 
-// RevokeExpired revokes all expired certificates with the given name.
+// RevokeExpired revokes all expired certificates stored under the given name.
+// Resolution is by storage key (not Subject CN), so it works correctly in org
+// mode when WithSubjectOverride sets a CN that differs from the entity name.
 func (p *PKI) RevokeExpired(name string, reason cert.RevocationReason) error {
-	filter := storage.StatusExpired
-	entries, err := p.index.Query(storage.IndexFilter{Status: &filter, Name: name})
+	if err := validateEntityName(name); err != nil {
+		return err
+	}
+	pairs, err := p.storage.GetByName(name)
 	if err != nil {
 		return err
 	}
-	now := time.Now()
-	for _, e := range entries {
-		if err := p.index.Update(e.Serial, storage.StatusRevoked, now, reason); err != nil {
-			return err
+
+	expiredStatus := storage.StatusExpired
+	allExpired, err := p.index.Query(storage.IndexFilter{Status: &expiredStatus})
+	if err != nil {
+		return err
+	}
+
+	// Build a set of serials for this storage name.
+	type void struct{}
+	serials := make(map[string]void, len(pairs))
+	for _, pair := range pairs {
+		if pair.CertPEM == nil {
+			continue
 		}
+		if serial, err := pair.Serial(); err == nil {
+			serials[serial.Text(16)] = void{}
+		}
+	}
+
+	now := time.Now()
+	var errs []error
+	for _, e := range allExpired {
+		if _, ok := serials[e.Serial.Text(16)]; !ok {
+			continue
+		}
+		if err := p.index.Update(e.Serial, storage.StatusRevoked, now, reason); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return err // index update(s) failed; do not regenerate CRL from inconsistent state
 	}
 	_, err = p.GenCRL()
 	return err
@@ -134,6 +171,21 @@ func (p *PKI) GenCRL() ([]byte, error) {
 		return nil, err
 	}
 	return crlPEM, nil
+}
+
+// ResetCRL removes the stored CRL, allowing GenCRL to start a fresh sequence.
+// Call this only after verifying that the current CRL state is acceptable;
+// the next GenCRL will restart the CRL number at 1.
+func (p *PKI) ResetCRL() error {
+	// CRLHolder implementations that store to a file expose a Delete method.
+	type deleter interface {
+		Delete() error
+	}
+	if d, ok := p.crlHolder.(deleter); ok {
+		return d.Delete()
+	}
+	// In-memory holders treat Put(nil) as a reset (Get() returns empty list).
+	return p.crlHolder.Put(nil)
 }
 
 // IsRevoked reports whether the certificate with the given serial is revoked.

@@ -3,6 +3,7 @@ package pki
 import (
 	"crypto/elliptic"
 	"crypto/x509/pkix"
+	"fmt"
 )
 
 // KeyAlgo specifies the algorithm used for key generation.
@@ -40,8 +41,10 @@ type Config struct {
 	SubjTemplate pkix.Name
 	DNMode       DNMode // cn_only | org (default: cn_only)
 
-	// Serial number generation
-	RandomSerial bool // true = random 128-bit serial; false = incremental (default: true)
+	// Serial number generation.
+	// SequentialSerial=false (zero value): random 128-bit serials (default).
+	// SequentialSerial=true: sequential serials drawn from SerialProvider.
+	SequentialSerial bool
 
 	// Key protection defaults
 	// The library stores key PEM bytes as returned by generation.
@@ -62,4 +65,18 @@ type Config struct {
 
 	// CA name in storage
 	CAName string // default: "ca"
+}
+
+// String implements fmt.Stringer, redacting sensitive passphrase fields so that
+// formatting a Config value (e.g. via %v or %+v) does not leak passphrases.
+func (c Config) String() string {
+	type alias Config // alias has no String() method — uses struct reflection
+	a := alias(c)
+	if a.CAPassphrase != "" {
+		a.CAPassphrase = "[REDACTED]"
+	}
+	if a.KeyPassphrase != "" {
+		a.KeyPassphrase = "[REDACTED]"
+	}
+	return fmt.Sprintf("%+v", a)
 }

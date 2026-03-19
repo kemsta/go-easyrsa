@@ -100,7 +100,7 @@ func (p *Pair) CertType() (CertType, error) {
 	case hasClient:
 		return CertTypeClient, nil
 	default:
-		return CertTypeClient, nil
+		return "", errors.New("cert: unrecognized certificate type: no recognized EKU (ServerAuth or ClientAuth)")
 	}
 }
 
