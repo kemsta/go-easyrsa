@@ -3,6 +3,8 @@
 package e2e
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/kemsta/go-easyrsa/cert"
@@ -38,11 +40,12 @@ func TestImportReq(t *testing.T) {
 	er.Run("build-ca", "nopass")
 	er.Run("gen-req", "req1", "nopass")
 
-	// Read the CSR that easy-rsa generated.
-	csrPEM := []byte(er.Run("show-req", "req1"))
-
-	p, err := pki.NewWithFS(pkiDir, pki.Config{})
+	// Read the CSR file that easy-rsa generated directly (show-req outputs human-readable text, not PEM).
+	csrPEM, err := os.ReadFile(filepath.Join(pkiDir, "reqs", "req1.req"))
 	require.NoError(t, err)
+
+	p, err2 := pki.NewWithFS(pkiDir, pki.Config{})
+	require.NoError(t, err2)
 
 	err = p.ImportReq("req1", csrPEM)
 	require.NoError(t, err) // fails: ErrNotImplemented

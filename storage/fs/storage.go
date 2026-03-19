@@ -99,7 +99,7 @@ func (ks *KeyStorage) GetLastByName(name string) (*cert.Pair, error) {
 	certPEM, err := os.ReadFile(ks.certPath(name))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, storage.ErrNotFound
+			return ks.getFromRevoked(name)
 		}
 		return nil, err
 	}
@@ -108,6 +108,41 @@ func (ks *KeyStorage) GetLastByName(name string) (*cert.Pair, error) {
 		pair.KeyPEM = keyPEM
 	}
 	return pair, nil
+}
+
+// getFromRevoked searches revoked/certs_by_serial/ for a cert matching name (CN).
+// easy-rsa moves certs there when revoking.
+func (ks *KeyStorage) getFromRevoked(name string) (*cert.Pair, error) {
+	revokedDir := fsJoin(ks.pkiDir, "revoked", "certs_by_serial")
+	entries, err := os.ReadDir(revokedDir)
+	if err != nil {
+		return nil, storage.ErrNotFound
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".crt") {
+			continue
+		}
+		data, err := os.ReadFile(fsJoin(revokedDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		block, _ := pem.Decode(data)
+		if block == nil {
+			continue
+		}
+		c, err := x509.ParseCertificate(block.Bytes)
+		if err != nil || c.Subject.CommonName != name {
+			continue
+		}
+		pair := &cert.Pair{Name: name, CertPEM: data}
+		serialHex := strings.TrimSuffix(e.Name(), ".crt")
+		keyPath := fsJoin(ks.pkiDir, "revoked", "private_by_serial", serialHex+".key")
+		if keyPEM, err := os.ReadFile(keyPath); err == nil {
+			pair.KeyPEM = keyPEM
+		}
+		return pair, nil
+	}
+	return nil, storage.ErrNotFound
 }
 
 func (ks *KeyStorage) GetByName(name string) ([]*cert.Pair, error) {
