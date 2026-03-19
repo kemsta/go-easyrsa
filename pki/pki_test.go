@@ -3,6 +3,7 @@ package pki_test
 import (
 	"crypto/elliptic"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"math/big"
 	"testing"
 	"time"
@@ -128,6 +129,38 @@ func TestBuildCA_NoPassRequired(t *testing.T) {
 	p := newTestPKI(pki.Config{}) // NoPass: false, no per-op override
 	_, err := p.BuildCA()
 	assert.Error(t, err)
+}
+
+func TestBuildCA_CNOnly(t *testing.T) {
+	cfg := pki.Config{
+		NoPass:       true,
+		DNMode:       pki.DNModeCNOnly,
+		SubjTemplate: pkix.Name{Organization: []string{"Acme Corp"}},
+	}
+	p := newTestPKI(cfg)
+	pair, err := p.BuildCA(pki.WithCN("MyCA"))
+	require.NoError(t, err)
+
+	c, err := pair.Certificate()
+	require.NoError(t, err)
+	assert.Equal(t, "MyCA", c.Subject.CommonName)
+	assert.Empty(t, c.Subject.Organization)
+}
+
+func TestBuildCA_OrgMode(t *testing.T) {
+	cfg := pki.Config{
+		NoPass:       true,
+		DNMode:       pki.DNModeOrg,
+		SubjTemplate: pkix.Name{Organization: []string{"Acme Corp"}},
+	}
+	p := newTestPKI(cfg)
+	pair, err := p.BuildCA(pki.WithCN("MyCA"))
+	require.NoError(t, err)
+
+	c, err := pair.Certificate()
+	require.NoError(t, err)
+	assert.Equal(t, "MyCA", c.Subject.CommonName)
+	assert.Equal(t, []string{"Acme Corp"}, c.Subject.Organization)
 }
 
 // --- RenewCA ---

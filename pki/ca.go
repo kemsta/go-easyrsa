@@ -242,30 +242,47 @@ func (p *PKI) nextSerial() (*big.Int, error) {
 }
 
 // buildSubject constructs a pkix.Name from config defaults and option overrides.
+// In DNModeCNOnly (default), only CommonName is set; SubjTemplate org fields are ignored.
+// In DNModeOrg, all SubjTemplate fields are included and can be overridden by options.
 func buildSubject(cfg Config, o options, cn string) pkix.Name {
-	subject := cfg.SubjTemplate
-	subject.CommonName = cn
+	if cfg.DNMode == DNModeCNOnly || cfg.DNMode == "" {
+		name := pkix.Name{CommonName: cn}
+		if o.subject != nil && o.subject.CommonName != "" {
+			name.CommonName = o.subject.CommonName
+		}
+		if o.subjectSerial != "" {
+			name.SerialNumber = o.subjectSerial
+		}
+		return name
+	}
+
+	// org mode: include all fields from SubjTemplate, override with options.
+	name := cfg.SubjTemplate
+	name.CommonName = cn
 	if o.subject != nil {
 		if o.subject.CommonName != "" {
-			subject.CommonName = o.subject.CommonName
+			name.CommonName = o.subject.CommonName
 		}
 		if len(o.subject.Organization) > 0 {
-			subject.Organization = o.subject.Organization
+			name.Organization = o.subject.Organization
 		}
 		if len(o.subject.Country) > 0 {
-			subject.Country = o.subject.Country
+			name.Country = o.subject.Country
 		}
 		if len(o.subject.Province) > 0 {
-			subject.Province = o.subject.Province
+			name.Province = o.subject.Province
 		}
 		if len(o.subject.Locality) > 0 {
-			subject.Locality = o.subject.Locality
+			name.Locality = o.subject.Locality
 		}
 		if len(o.subject.OrganizationalUnit) > 0 {
-			subject.OrganizationalUnit = o.subject.OrganizationalUnit
+			name.OrganizationalUnit = o.subject.OrganizationalUnit
 		}
 	}
-	return subject
+	if o.subjectSerial != "" {
+		name.SerialNumber = o.subjectSerial
+	}
+	return name
 }
 
 // subjectKeyID computes the Subject Key Identifier (SHA-1 of public key DER).
