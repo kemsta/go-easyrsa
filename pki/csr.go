@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/kemsta/go-easyrsa/cert"
@@ -16,6 +17,9 @@ import (
 // The CSR PEM is returned and also stored via CSRStorage.
 // The key is stored in KeyStorage (cert-less pair).
 func (p *PKI) GenReq(name string, opts ...Option) (csrPEM []byte, err error) {
+	if err := validateEntityName(name); err != nil {
+		return nil, err
+	}
 	o := applyOptions(opts)
 
 	algo := string(p.config.KeyAlgo)
@@ -70,6 +74,9 @@ func (p *PKI) GenReq(name string, opts ...Option) (csrPEM []byte, err error) {
 	}
 
 	if err := p.csrStorage.PutCSR(name, csrPEM); err != nil {
+		// Best-effort cleanup: remove the orphaned key so storage is not left
+		// with a key-only pair that has no corresponding CSR or certificate.
+		_ = p.storage.DeleteByName(name)
 		return nil, err
 	}
 
@@ -78,6 +85,9 @@ func (p *PKI) GenReq(name string, opts ...Option) (csrPEM []byte, err error) {
 
 // ImportReq stores an externally generated CSR under the given name.
 func (p *PKI) ImportReq(name string, csrPEM []byte) error {
+	if err := validateEntityName(name); err != nil {
+		return err
+	}
 	// Validate the CSR before storing.
 	block, _ := pem.Decode(csrPEM)
 	if block == nil {
@@ -91,6 +101,9 @@ func (p *PKI) ImportReq(name string, csrPEM []byte) error {
 
 // SignReq signs a stored CSR and returns the resulting certificate pair.
 func (p *PKI) SignReq(name string, certType cert.CertType, opts ...Option) (*cert.Pair, error) {
+	if err := validateEntityName(name); err != nil {
+		return nil, err
+	}
 	o := applyOptions(opts)
 
 	csrPEM, err := p.csrStorage.GetCSR(name)
@@ -104,6 +117,9 @@ func (p *PKI) SignReq(name string, certType cert.CertType, opts ...Option) (*cer
 	csr, err := x509.ParseCertificateRequest(block.Bytes)
 	if err != nil {
 		return nil, err
+	}
+	if err := csr.CheckSignature(); err != nil {
+		return nil, fmt.Errorf("pki: CSR signature verification failed: %w", err)
 	}
 
 	caPair, err := p.storage.GetLastByName(p.config.CAName)
@@ -167,8 +183,10 @@ func (p *PKI) SignReq(name string, certType cert.CertType, opts ...Option) (*cer
 		template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
 	case cert.CertTypeServerClient:
 		template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}
-	default: // CertTypeClient
+	case cert.CertTypeClient:
 		template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
+	default:
+		return nil, fmt.Errorf("pki: unknown cert type %q", certType)
 	}
 
 	// Copy SANs from CSR if requested.
@@ -198,6 +216,12 @@ func (p *PKI) SignReq(name string, certType cert.CertType, opts ...Option) (*cer
 	}
 	certPEM := pemEncodeCert(certDER)
 
+	// Parse the cert to get index fields.
+	parsedCert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		return nil, err
+	}
+
 	// Retrieve existing key if present (from GenReq).
 	var keyPEM []byte
 	if existing, err := p.storage.GetLastByName(name); err == nil {
@@ -208,17 +232,13 @@ func (p *PKI) SignReq(name string, certType cert.CertType, opts ...Option) (*cer
 	if err := p.storage.Put(pair); err != nil {
 		return nil, err
 	}
-
-	parsedCert, err := x509.ParseCertificate(certDER)
-	if err != nil {
-		return nil, err
-	}
 	if err := p.index.Record(storage.IndexEntry{
 		Status:    storage.StatusValid,
 		ExpiresAt: parsedCert.NotAfter,
 		Serial:    parsedCert.SerialNumber,
 		Subject:   parsedCert.Subject,
 	}); err != nil {
+		_ = p.storage.DeleteByName(name)
 		return nil, err
 	}
 

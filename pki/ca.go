@@ -109,6 +109,11 @@ func (p *PKI) BuildCA(opts ...Option) (*cert.Pair, error) {
 		return nil, err
 	}
 
+	parsedCert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		return nil, err
+	}
+
 	pair := &cert.Pair{
 		Name:    p.config.CAName,
 		CertPEM: certPEM,
@@ -117,17 +122,13 @@ func (p *PKI) BuildCA(opts ...Option) (*cert.Pair, error) {
 	if err := p.storage.Put(pair); err != nil {
 		return nil, err
 	}
-
-	parsedCert, err := x509.ParseCertificate(certDER)
-	if err != nil {
-		return nil, err
-	}
 	if err := p.index.Record(storage.IndexEntry{
 		Status:    storage.StatusValid,
 		ExpiresAt: parsedCert.NotAfter,
 		Serial:    parsedCert.SerialNumber,
 		Subject:   parsedCert.Subject,
 	}); err != nil {
+		_ = p.storage.DeleteByName(p.config.CAName)
 		return nil, err
 	}
 
@@ -156,6 +157,7 @@ func (p *PKI) RenewCA(opts ...Option) (*cert.Pair, error) {
 	if err != nil {
 		return nil, err
 	}
+	oldSerial := oldCert.SerialNumber // capture before generating the new cert
 
 	notBefore := time.Now()
 	if !o.notBefore.IsZero() {
@@ -206,6 +208,11 @@ func (p *PKI) RenewCA(opts ...Option) (*cert.Pair, error) {
 		}
 	}
 
+	parsedCert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		return nil, err
+	}
+
 	pair := &cert.Pair{
 		Name:    p.config.CAName,
 		CertPEM: certPEM,
@@ -214,17 +221,12 @@ func (p *PKI) RenewCA(opts ...Option) (*cert.Pair, error) {
 	if err := p.storage.Put(pair); err != nil {
 		return nil, err
 	}
-
-	parsedCert, err := x509.ParseCertificate(certDER)
-	if err != nil {
-		return nil, err
-	}
-	if err := p.index.Record(storage.IndexEntry{
+	if err := p.index.RecordAndUpdate(storage.IndexEntry{
 		Status:    storage.StatusValid,
 		ExpiresAt: parsedCert.NotAfter,
 		Serial:    parsedCert.SerialNumber,
 		Subject:   parsedCert.Subject,
-	}); err != nil {
+	}, oldSerial, storage.StatusExpired, time.Time{}, 0); err != nil {
 		return nil, err
 	}
 
@@ -232,13 +234,13 @@ func (p *PKI) RenewCA(opts ...Option) (*cert.Pair, error) {
 }
 
 // nextSerial returns the next serial number.
-// If RandomSerial is configured, returns a random 128-bit integer.
-// Otherwise uses the SerialProvider.
+// If SequentialSerial is false (default), returns a random 128-bit integer.
+// If SequentialSerial is true, draws the next serial from the SerialProvider.
 func (p *PKI) nextSerial() (*big.Int, error) {
-	if p.config.RandomSerial {
-		return rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if p.config.SequentialSerial {
+		return p.serial.Next()
 	}
-	return p.serial.Next()
+	return rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 }
 
 // buildSubject constructs a pkix.Name from config defaults and option overrides.

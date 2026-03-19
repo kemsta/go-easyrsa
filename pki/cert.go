@@ -12,30 +12,57 @@ import (
 
 // BuildClientFull generates a client key and issues a signed client certificate.
 func (p *PKI) BuildClientFull(name string, opts ...Option) (*cert.Pair, error) {
+	if err := validateEntityName(name); err != nil {
+		return nil, err
+	}
 	if _, err := p.GenReq(name, opts...); err != nil {
 		return nil, err
 	}
-	return p.SignReq(name, cert.CertTypeClient, opts...)
+	pair, err := p.SignReq(name, cert.CertTypeClient, opts...)
+	if err != nil {
+		_ = p.storage.DeleteByName(name) // best-effort: remove key stored by GenReq
+		return nil, err
+	}
+	return pair, nil
 }
 
 // BuildServerFull generates a server key and issues a signed server certificate.
 func (p *PKI) BuildServerFull(name string, opts ...Option) (*cert.Pair, error) {
+	if err := validateEntityName(name); err != nil {
+		return nil, err
+	}
 	if _, err := p.GenReq(name, opts...); err != nil {
 		return nil, err
 	}
-	return p.SignReq(name, cert.CertTypeServer, opts...)
+	pair, err := p.SignReq(name, cert.CertTypeServer, opts...)
+	if err != nil {
+		_ = p.storage.DeleteByName(name) // best-effort: remove key stored by GenReq
+		return nil, err
+	}
+	return pair, nil
 }
 
 // BuildServerClientFull generates a key and issues a combined server+client certificate.
 func (p *PKI) BuildServerClientFull(name string, opts ...Option) (*cert.Pair, error) {
+	if err := validateEntityName(name); err != nil {
+		return nil, err
+	}
 	if _, err := p.GenReq(name, opts...); err != nil {
 		return nil, err
 	}
-	return p.SignReq(name, cert.CertTypeServerClient, opts...)
+	pair, err := p.SignReq(name, cert.CertTypeServerClient, opts...)
+	if err != nil {
+		_ = p.storage.DeleteByName(name) // best-effort: remove key stored by GenReq
+		return nil, err
+	}
+	return pair, nil
 }
 
 // Renew renews a certificate by name, retaining the existing private key.
 func (p *PKI) Renew(name string, opts ...Option) (*cert.Pair, error) {
+	if err := validateEntityName(name); err != nil {
+		return nil, err
+	}
 	o := applyOptions(opts)
 
 	existing, err := p.storage.GetLastByName(name)
@@ -46,6 +73,7 @@ func (p *PKI) Renew(name string, opts ...Option) (*cert.Pair, error) {
 	if err != nil {
 		return nil, err
 	}
+	oldSerial := oldCert.SerialNumber // capture before generating the new cert
 
 	caPair, err := p.storage.GetLastByName(p.config.CAName)
 	if err != nil {
@@ -95,21 +123,21 @@ func (p *PKI) Renew(name string, opts ...Option) (*cert.Pair, error) {
 	}
 	certPEM := pemEncodeCert(certDER)
 
-	pair := &cert.Pair{Name: name, CertPEM: certPEM, KeyPEM: existing.KeyPEM}
-	if err := p.storage.Put(pair); err != nil {
-		return nil, err
-	}
-
 	parsedCert, err := x509.ParseCertificate(certDER)
 	if err != nil {
 		return nil, err
 	}
-	if err := p.index.Record(storage.IndexEntry{
+
+	pair := &cert.Pair{Name: name, CertPEM: certPEM, KeyPEM: existing.KeyPEM}
+	if err := p.storage.Put(pair); err != nil {
+		return nil, err
+	}
+	if err := p.index.RecordAndUpdate(storage.IndexEntry{
 		Status:    storage.StatusValid,
 		ExpiresAt: parsedCert.NotAfter,
 		Serial:    parsedCert.SerialNumber,
 		Subject:   parsedCert.Subject,
-	}); err != nil {
+	}, oldSerial, storage.StatusExpired, time.Time{}, 0); err != nil {
 		return nil, err
 	}
 
@@ -118,6 +146,9 @@ func (p *PKI) Renew(name string, opts ...Option) (*cert.Pair, error) {
 
 // ExpireCert forces a certificate into expired state in the index.
 func (p *PKI) ExpireCert(name string) error {
+	if err := validateEntityName(name); err != nil {
+		return err
+	}
 	pair, err := p.storage.GetLastByName(name)
 	if err != nil {
 		return err
