@@ -37,13 +37,9 @@ Every `easyrsa` command has a direct Go equivalent:
 | `export-p1` | `ExportP1(name)` |
 | `set-pass` | `SetPass(name, oldPass, newPass)` |
 
-The filesystem backend reads and writes the same `index.txt`, `serial`, `private/`, `issued/`, `certs_by_serial/` layout - you can point it at an existing easy-rsa PKI directory and it just works.
+The filesystem backend is a drop-in replacement for easy-rsa and uses the same current PKI layout.
 
-Compatibility with the legacy v1 filesystem layout is available via a separate **read-only** backend (`pki.NewWithLegacyFSRO(dir, cfg)`). See [docs/legacy.md](docs/legacy.md) for supported operations, limitations, and migration guidance.
-
-For copy-based migration between storage backends, see [docs/migration.md](docs/migration.md). The official migrator CLI lives in the separate Cobra-based submodule under `cmd/go-easyrsa-migrate`, so library consumers do not pull CLI dependencies.
-
-For users who still want the tiny v1-style command UX, there is also a separate compatibility CLI under `cmd/go-easyrsa-legacy-cli`. See [docs/legacy-cli.md](docs/legacy-cli.md).
+For legacy v1 filesystem layout support, see [docs/legacy.md](docs/legacy.md).
 
 ---
 
