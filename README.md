@@ -39,6 +39,12 @@ Every `easyrsa` command has a direct Go equivalent:
 
 The filesystem backend reads and writes the same `index.txt`, `serial`, `private/`, `issued/`, `certs_by_serial/` layout - you can point it at an existing easy-rsa PKI directory and it just works.
 
+Compatibility with the legacy v1 filesystem layout is available via a separate **read-only** backend (`pki.NewWithLegacyFSRO(dir, cfg)`). See [docs/legacy.md](docs/legacy.md) for supported operations, limitations, and migration guidance.
+
+For copy-based migration between storage backends, see [docs/migration.md](docs/migration.md). The official migrator CLI lives in the separate Cobra-based submodule under `cmd/go-easyrsa-migrate`, so library consumers do not pull CLI dependencies.
+
+For users who still want the tiny v1-style command UX, there is also a separate compatibility CLI under `cmd/go-easyrsa-legacy-cli`. See [docs/legacy-cli.md](docs/legacy-cli.md).
+
 ---
 
 ## ✨ Features
@@ -216,7 +222,10 @@ import "github.com/kemsta/go-easyrsa/storage/memory"
 
 // In-memory backend - ideal for tests
 ks, csr, idx, sp, crl := memory.New()
-p := pki.New(pki.Config{NoPass: true}, ks, csr, idx, sp, crl)
+p, err := pki.New(pki.Config{NoPass: true}, ks, csr, idx, sp, crl)
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
 ---

@@ -13,9 +13,48 @@ import (
 
 // Sentinel errors returned by storage implementations.
 var (
-	ErrNotFound = errors.New("not found")
-	ErrConflict = errors.New("already exists")
+	ErrNotFound       = errors.New("not found")
+	ErrConflict       = errors.New("already exists")
+	ErrReadOnly       = errors.New("read-only storage")
+	ErrForeignStorage = errors.New("storage does not own existing data")
 )
+
+// ReadOnly is an optional interface for storage components that explicitly
+// declare themselves read-only.
+type ReadOnly interface {
+	ReadOnly() bool
+}
+
+// OwnershipValidator is an optional interface for storage backends that manage
+// an external namespace (filesystem path, bucket prefix, database schema, etc.)
+// and need to verify whether pre-existing data belongs to that backend.
+//
+// Empty reports whether the target namespace is currently empty (or absent).
+// Owned reports whether a non-empty namespace already belongs to this backend.
+type OwnershipValidator interface {
+	Empty() (bool, error)
+	Owned() (bool, error)
+}
+
+// ValidateOwnership accepts an empty namespace and otherwise requires the
+// backend to confirm that the existing data already belongs to it.
+func ValidateOwnership(v OwnershipValidator) error {
+	empty, err := v.Empty()
+	if err != nil {
+		return err
+	}
+	if empty {
+		return nil
+	}
+	owned, err := v.Owned()
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return ErrForeignStorage
+	}
+	return nil
+}
 
 // CertStatus represents the current state of a certificate in the index.
 type CertStatus string
@@ -55,6 +94,21 @@ type KeyStorage interface {
 	GetAll() ([]*cert.Pair, error)
 }
 
+// PairStream yields pairs one by one to the provided callback.
+type PairStream func(yield func(*cert.Pair) error) error
+
+// PairExporter is an optional interface for key storages that can stream pairs
+// without materializing the full set in memory.
+type PairExporter interface {
+	ExportPairs(yield func(*cert.Pair) error) error
+}
+
+// PairReplacer is an optional interface for key storages that can import a full
+// pair stream while preserving storage-specific history semantics.
+type PairReplacer interface {
+	ReplacePairs(stream PairStream) error
+}
+
 // CSRStorage stores Certificate Signing Requests (PEM-encoded).
 type CSRStorage interface {
 	PutCSR(name string, csrPEM []byte) error
@@ -79,6 +133,12 @@ type IndexDB interface {
 	Query(filter IndexFilter) ([]IndexEntry, error)
 }
 
+// IndexReplacer is an optional interface for index implementations that can be
+// fully replaced from a migration snapshot.
+type IndexReplacer interface {
+	ReplaceAll(entries []IndexEntry) error
+}
+
 // HexSerial returns n as an uppercase, even-length hex string (e.g. 1 → "01").
 func HexSerial(n *big.Int) string {
 	h := strings.ToUpper(n.Text(16))
@@ -91,6 +151,12 @@ func HexSerial(n *big.Int) string {
 // SerialProvider generates monotonically increasing serial numbers.
 type SerialProvider interface {
 	Next() (*big.Int, error)
+}
+
+// SerialSetter is an optional interface for serial providers that can accept a
+// precomputed next serial from a migration snapshot.
+type SerialSetter interface {
+	SetNext(next *big.Int) error
 }
 
 // CRLHolder stores and retrieves the Certificate Revocation List.

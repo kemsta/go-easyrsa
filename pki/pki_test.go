@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kemsta/go-easyrsa/cert"
+	"github.com/kemsta/go-easyrsa/internal/testutil"
 	"github.com/kemsta/go-easyrsa/pki"
 	"github.com/kemsta/go-easyrsa/storage"
 	"github.com/kemsta/go-easyrsa/storage/memory"
@@ -141,7 +142,18 @@ var errDiskFull = errors.New("simulated disk full")
 // newTestPKI creates a PKI instance backed by in-memory storage.
 func newTestPKI(cfg pki.Config) *pki.PKI {
 	ks, cs, idx, sp, crl := memory.New()
-	return pki.New(cfg, ks, cs, idx, sp, crl)
+	p, err := pki.New(cfg, ks, cs, idx, sp, crl)
+	if err != nil {
+		panic(err)
+	}
+	return p
+}
+
+func mustNewPKI(t *testing.T, cfg pki.Config, ks storage.KeyStorage, cs storage.CSRStorage, idx storage.IndexDB, sp storage.SerialProvider, crl storage.CRLHolder) *pki.PKI {
+	t.Helper()
+	p, err := pki.New(cfg, ks, cs, idx, sp, crl)
+	require.NoError(t, err)
+	return p
 }
 
 func buildTestCA(t *testing.T, p *pki.PKI, opts ...pki.Option) {
@@ -283,7 +295,7 @@ func TestBuildCA_OrgMode(t *testing.T) {
 func TestBuildCA_NoOrphanCertOnIndexRecordFailure(t *testing.T) {
 	ks, cs, idx, sp, crl := memory.New()
 	failIdx := &errRecordIndexDB{inner: idx, errOnRecord: errDiskFull}
-	p := pki.New(pki.Config{NoPass: true}, ks, cs, failIdx, sp, crl)
+	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, failIdx, sp, crl)
 
 	_, err := p.BuildCA()
 	require.Error(t, err, "BuildCA must surface the index.Record failure")
@@ -352,11 +364,11 @@ func TestRenewCA_OldCACertNoLongerValidAfterRenew(t *testing.T) {
 // propagates the index.Update failure for the old CA serial.
 func TestRenewCA_OldCertIndexUpdateFailureIsReturned(t *testing.T) {
 	ks, cs, idx, sp, crl := memory.New()
-	goodP := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+	goodP := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
 	buildTestCA(t, goodP)
 
 	failIdx := &errUpdateIndexDB{inner: idx, errOnUpdate: errDiskFull}
-	p := pki.New(pki.Config{NoPass: true}, ks, cs, failIdx, sp, crl)
+	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, failIdx, sp, crl)
 
 	_, err := p.RenewCA()
 	assert.Error(t, err,
@@ -390,11 +402,11 @@ func TestGenReq_PathTraversalInName(t *testing.T) {
 // GenReq cleans up the orphaned private key.
 func TestGenReq_OrphanKeyCleanupOnCSRStorageFailure(t *testing.T) {
 	ks, cs, idx, sp, crl := memory.New()
-	goodP := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+	goodP := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
 	buildTestCA(t, goodP)
 
 	failCS := &errPutCSRStorage{inner: cs, errOnPut: errDiskFull}
-	p := pki.New(pki.Config{NoPass: true}, ks, failCS, idx, sp, crl)
+	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, failCS, idx, sp, crl)
 
 	_, err := p.GenReq("client1")
 	require.Error(t, err, "setup: GenReq must fail when PutCSR fails")
@@ -475,12 +487,12 @@ func TestSignReq_NoCA(t *testing.T) {
 // fails during SignReq (via BuildClientFull), no orphan cert is left.
 func TestSignReq_NoOrphanCertOnIndexRecordFailure(t *testing.T) {
 	ks, cs, idx, sp, crl := memory.New()
-	goodP := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+	goodP := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
 	_, err := goodP.BuildCA()
 	require.NoError(t, err)
 
 	failIdx := &errRecordIndexDB{inner: idx, errOnRecord: errors.New("index: disk full")}
-	p := pki.New(pki.Config{NoPass: true}, ks, cs, failIdx, sp, crl)
+	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, failIdx, sp, crl)
 
 	_, err = p.BuildClientFull("client1")
 	require.Error(t, err, "BuildClientFull must surface the index.Record failure")
@@ -495,14 +507,14 @@ func TestSignReq_NoOrphanCertOnIndexRecordFailure(t *testing.T) {
 // fails during SignReq, no phantom Valid entry remains in the index.
 func TestSignReq_StoragePutFailureNoPhantomIndexEntry(t *testing.T) {
 	ks, cs, idx, sp, crl := memory.New()
-	goodP := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+	goodP := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
 	buildTestCA(t, goodP)
 
 	_, err := goodP.GenReq("client1")
 	require.NoError(t, err)
 
 	failKS := &certPutFailKeyStorage{inner: ks, certPutsAllowed: 0}
-	p := pki.New(pki.Config{NoPass: true}, failKS, cs, idx, sp, crl)
+	p := mustNewPKI(t, pki.Config{NoPass: true}, failKS, cs, idx, sp, crl)
 
 	_, err = p.SignReq("client1", cert.CertTypeClient)
 	require.Error(t, err, "setup: SignReq must fail when storage.Put fails")
@@ -519,7 +531,7 @@ func TestSignReq_StoragePutFailureNoPhantomIndexEntry(t *testing.T) {
 // TestSignReq_PathTraversalInName verifies that SignReq rejects names with path traversal.
 func TestSignReq_PathTraversalInName(t *testing.T) {
 	ks, cs, idx, sp, crl := memory.New()
-	p := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
 	buildTestCA(t, p)
 
 	csrPEM, err := p.GenReq("legit")
@@ -552,7 +564,7 @@ func TestSignReq_UnknownCertTypeReturnsError(t *testing.T) {
 // CSR self-signature (proof-of-possession) before issuing a certificate.
 func TestSignReq_InvalidCSRSignatureIsRejected(t *testing.T) {
 	ks, cs, idx, sp, crl := memory.New()
-	p := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
 	buildTestCA(t, p)
 
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
@@ -666,7 +678,7 @@ func TestBuildClientFull_PathTraversalInName(t *testing.T) {
 // does not leave orphan key-only pairs in memory storage.
 func TestMemoryKeyStorage_NoOrphanPairsAfterBuildFull(t *testing.T) {
 	ks, cs, idx, sp, crl := memory.New()
-	p := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
 	buildTestCA(t, p)
 
 	_, err := p.BuildClientFull("client1")
@@ -742,13 +754,13 @@ func TestRenew_OldCertNoLongerValidAfterRenew(t *testing.T) {
 // the index.Update failure for the old cert's serial.
 func TestRenew_OldCertIndexUpdateFailureIsReturned(t *testing.T) {
 	ks, cs, idx, sp, crl := memory.New()
-	goodP := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+	goodP := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
 	buildTestCA(t, goodP)
 	_, err := goodP.BuildClientFull("client1")
 	require.NoError(t, err)
 
 	failIdx := &errUpdateIndexDB{inner: idx, errOnUpdate: errDiskFull}
-	p := pki.New(pki.Config{NoPass: true}, ks, cs, failIdx, sp, crl)
+	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, failIdx, sp, crl)
 
 	_, err = p.Renew("client1")
 	assert.Error(t, err,
@@ -761,7 +773,7 @@ func TestRenew_OldCertIndexUpdateFailureIsReturned(t *testing.T) {
 // do not accumulate stale cert pairs in memory storage.
 func TestRenew_NoCertAccumulationInMemoryStorage(t *testing.T) {
 	ks, cs, idx, sp, crl := memory.New()
-	p := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
 	buildTestCA(t, p)
 
 	_, err := p.BuildClientFull("client1")
@@ -854,7 +866,7 @@ func TestGenCRL_NoCA(t *testing.T) {
 func TestGenCRL_CorruptCRL(t *testing.T) {
 	ks, cs, idx, sp, innerCRL := memory.New()
 	badCRL := &errCRLHolder{inner: innerCRL, errOnGet: errors.New("disk error")}
-	p := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, badCRL)
+	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, idx, sp, badCRL)
 
 	buildTestCA(t, p)
 	_, err := p.GenCRL()
@@ -915,7 +927,7 @@ func TestRevoke_NotFound(t *testing.T) {
 func TestRevoke_IndexNotFound(t *testing.T) {
 	ks, cs, idx, sp, crl := memory.New()
 	errIdx := &errUpdateIndexDB{inner: idx, errOnUpdate: storage.ErrNotFound}
-	p := pki.New(pki.Config{NoPass: true}, ks, cs, errIdx, sp, crl)
+	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, errIdx, sp, crl)
 
 	buildTestCA(t, p)
 	_, err := p.BuildClientFull("client1")
@@ -930,7 +942,7 @@ func TestRevoke_IndexNotFound(t *testing.T) {
 func TestRevoke_DoesNotUpdateCRLWhenIndexUpdateFails(t *testing.T) {
 	ks, cs, idx, sp, crl := memory.New()
 	errIdx := &errUpdateIndexDB{inner: idx, errOnUpdate: errors.New("index: disk full")}
-	p := pki.New(pki.Config{NoPass: true}, ks, cs, errIdx, sp, crl)
+	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, errIdx, sp, crl)
 
 	buildTestCA(t, p)
 	_, err := p.BuildClientFull("client1")
@@ -1081,7 +1093,7 @@ func TestShowExpiring_Misses(t *testing.T) {
 // error when the key storage is missing a cert referenced by the index.
 func TestShowExpiring_StorageGap(t *testing.T) {
 	ks, cs, idx, sp, crl := memory.New()
-	p := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
 
 	buildTestCA(t, p)
 	pair, err := p.BuildClientFull("client1", pki.WithDays(1))
@@ -1126,7 +1138,7 @@ func TestShowRevoked_WithRevoked(t *testing.T) {
 // error when the key storage is missing a revoked cert referenced by the index.
 func TestShowRevoked_StorageGap(t *testing.T) {
 	ks, cs, idx, sp, crl := memory.New()
-	p := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
 
 	buildTestCA(t, p)
 	pair, err := p.BuildClientFull("client1")
@@ -1196,7 +1208,7 @@ func TestVerifyCert_PathTraversalInName(t *testing.T) {
 // when a CRL is signed by a different CA.
 func TestVerifyCert_CRLSignatureIsNotVerified(t *testing.T) {
 	ks1, cs1, idx1, sp1, crl1 := memory.New()
-	p1 := pki.New(pki.Config{NoPass: true}, ks1, cs1, idx1, sp1, crl1)
+	p1 := mustNewPKI(t, pki.Config{NoPass: true}, ks1, cs1, idx1, sp1, crl1)
 	buildTestCA(t, p1)
 
 	_, err := p1.BuildClientFull("client1")
@@ -1210,7 +1222,7 @@ func TestVerifyCert_CRLSignatureIsNotVerified(t *testing.T) {
 
 	_, cs2, idx2, sp2, crl2 := memory.New()
 	ks2, _, _, _, _ := memory.New()
-	p2 := pki.New(pki.Config{NoPass: true}, ks2, cs2, idx2, sp2, crl2)
+	p2 := mustNewPKI(t, pki.Config{NoPass: true}, ks2, cs2, idx2, sp2, crl2)
 	buildTestCA(t, p2)
 
 	cleanCRLPEM, err := p2.GenCRL()
@@ -1370,7 +1382,7 @@ func TestSetPass_ChangeBack(t *testing.T) {
 // calls do not accumulate duplicate cert pairs in memory storage.
 func TestSetPass_NoCertAccumulationInMemoryStorage(t *testing.T) {
 	ks, cs, idx, sp, crl := memory.New()
-	p := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
 	buildTestCA(t, p)
 
 	_, err := p.BuildClientFull("client1")
@@ -1417,7 +1429,7 @@ func TestConfig_DefaultUsesRandomSerials(t *testing.T) {
 func TestConfig_RandomSerialFalseIsRespected(t *testing.T) {
 	ks, cs, idx, sp, crl := memory.New()
 	cfg := pki.Config{NoPass: true, SequentialSerial: true}
-	p := pki.New(cfg, ks, cs, idx, sp, crl)
+	p := mustNewPKI(t, cfg, ks, cs, idx, sp, crl)
 
 	buildTestCA(t, p)
 
@@ -1456,6 +1468,103 @@ func TestConfig_PassphrasesNotLeakedInStringFormatting(t *testing.T) {
 
 	assert.False(t, strings.Contains(formatted, keyPass),
 		"KeyPassphrase %q is visible in %%+v output of Config", keyPass)
+}
+
+// --- Legacy read-only backend ---
+
+func TestNewWithLegacyFSRO_ReadsAndExports(t *testing.T) {
+	dir := t.TempDir()
+	fixture := testutil.WriteLegacyFixture(t, dir)
+
+	p, err := pki.NewWithLegacyFSRO(dir, pki.Config{})
+	require.NoError(t, err)
+
+	caPair, err := p.ShowCA()
+	require.NoError(t, err)
+	assert.Equal(t, "ca", caPair.Name)
+
+	pair, err := p.ShowCert("client1")
+	require.NoError(t, err)
+	serial, err := pair.Serial()
+	require.NoError(t, err)
+	assert.Zero(t, serial.Cmp(testutil.MustSerial(t, fixture.ClientCurrent)))
+
+	crl, err := p.ShowCRL()
+	require.NoError(t, err)
+	assert.NotEmpty(t, crl.RevokedCertificateEntries)
+
+	revoked, err := p.ShowRevoked()
+	require.NoError(t, err)
+	require.Len(t, revoked, 1)
+	revokedSerial, err := revoked[0].Serial()
+	require.NoError(t, err)
+	assert.Zero(t, revokedSerial.Cmp(testutil.MustSerial(t, fixture.RevokedPair)))
+
+	expiring, err := p.ShowExpiring(800)
+	require.NoError(t, err)
+	assert.Len(t, expiring, 2)
+
+	revokedFlag, err := p.IsRevoked(testutil.MustSerial(t, fixture.RevokedPair))
+	require.NoError(t, err)
+	assert.True(t, revokedFlag)
+
+	require.NoError(t, p.VerifyCert("client1"))
+
+	p12, err := p.ExportP12("client1", "bundle-pass")
+	require.NoError(t, err)
+	assert.NotEmpty(t, p12)
+
+	p7, err := p.ExportP7("client1")
+	require.NoError(t, err)
+	assert.NotEmpty(t, p7)
+
+	p8, err := p.ExportP8("client1", "secret")
+	require.NoError(t, err)
+	assert.NotEmpty(t, p8)
+
+	p1, err := p.ExportP1("client1")
+	require.NoError(t, err)
+	assert.NotEmpty(t, p1)
+}
+
+func TestNewWithLegacyFSRO_RejectsWrites(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteLegacyFixture(t, dir)
+
+	p, err := pki.NewWithLegacyFSRO(dir, pki.Config{NoPass: true})
+	require.NoError(t, err)
+
+	_, err = p.BuildCA()
+	assert.ErrorIs(t, err, storage.ErrReadOnly)
+
+	_, err = p.GenReq("new-client")
+	assert.ErrorIs(t, err, storage.ErrReadOnly)
+
+	q := newTestPKI(pki.Config{NoPass: true})
+	buildTestCA(t, q)
+	csrPEM, err := q.GenReq("partner")
+	require.NoError(t, err)
+
+	err = p.ImportReq("new-client", csrPEM)
+	assert.ErrorIs(t, err, storage.ErrReadOnly)
+
+	_, err = p.SignReq("new-client", cert.CertTypeClient)
+	assert.ErrorIs(t, err, storage.ErrReadOnly)
+
+	_, err = p.Renew("client1")
+	assert.ErrorIs(t, err, storage.ErrReadOnly)
+
+	err = p.Revoke("client1", cert.ReasonUnspecified)
+	assert.ErrorIs(t, err, storage.ErrReadOnly)
+
+	_, err = p.GenCRL()
+	assert.ErrorIs(t, err, storage.ErrReadOnly)
+
+	err = p.SetPass("client1", "", "new-pass")
+	assert.ErrorIs(t, err, storage.ErrReadOnly)
+
+	err = p.UpdateDB()
+	assert.ErrorIs(t, err, storage.ErrReadOnly)
 }
 
 // --- CertType ---

@@ -3,9 +3,11 @@ package pki
 import (
 	"crypto/elliptic"
 	"errors"
+	"fmt"
 
 	"github.com/kemsta/go-easyrsa/storage"
 	fsstore "github.com/kemsta/go-easyrsa/storage/fs"
+	legacystore "github.com/kemsta/go-easyrsa/storage/legacy"
 )
 
 // PKI orchestrates all certificate operations.
@@ -20,6 +22,9 @@ type PKI struct {
 }
 
 // New constructs a PKI with explicit storage dependencies.
+// If any provided storage component implements storage.OwnershipValidator,
+// New verifies that the existing namespace is either empty or already owned by
+// that backend.
 func New(
 	cfg Config,
 	s storage.KeyStorage,
@@ -27,7 +32,10 @@ func New(
 	idx storage.IndexDB,
 	sp storage.SerialProvider,
 	crl storage.CRLHolder,
-) *PKI {
+) (*PKI, error) {
+	if err := validateOwnedStorages(s, csr, idx, sp, crl); err != nil {
+		return nil, err
+	}
 	return &PKI{
 		storage:    s,
 		csrStorage: csr,
@@ -35,27 +43,65 @@ func New(
 		serial:     sp,
 		crlHolder:  crl,
 		config:     applyConfigDefaults(cfg),
-	}
+	}, nil
 }
 
 // NewWithFS constructs a PKI backed by a filesystem PKI directory
 // using the easy-rsa-compatible layout.
 func NewWithFS(pkiDir string, cfg Config) (*PKI, error) {
 	cfg = applyConfigDefaults(cfg)
+	ks := fsstore.NewKeyStorage(pkiDir, cfg.CAName)
+	cs := fsstore.NewCSRStorage(pkiDir)
+	idx := fsstore.NewIndexDB(pkiDir)
+	sp := fsstore.NewSerialProvider(pkiDir)
+	crl := fsstore.NewCRLHolder(pkiDir)
+	pk, err := New(cfg, ks, cs, idx, sp, crl)
+	if err != nil {
+		return nil, wrapForeignStorageError(err, pkiDir, "current PKI filesystem layout")
+	}
 	if err := fsstore.InitDirs(pkiDir); err != nil {
 		return nil, err
 	}
-	return &PKI{
-		storage:    fsstore.NewKeyStorage(pkiDir, cfg.CAName),
-		csrStorage: fsstore.NewCSRStorage(pkiDir),
-		index:      fsstore.NewIndexDB(pkiDir),
-		serial:     fsstore.NewSerialProvider(pkiDir),
-		crlHolder:  fsstore.NewCRLHolder(pkiDir),
-		config:     cfg,
-	}, nil
+	return pk, nil
+}
+
+// NewWithLegacyFSRO constructs a PKI backed by the legacy v1 filesystem layout
+// in read-only mode.
+func NewWithLegacyFSRO(pkiDir string, cfg Config) (*PKI, error) {
+	cfg = applyConfigDefaults(cfg)
+	ks := legacystore.NewKeyStorage(pkiDir, cfg.CAName)
+	cs := legacystore.NewCSRStorage(pkiDir)
+	sp := legacystore.NewSerialProvider(pkiDir)
+	crl := legacystore.NewCRLHolder(pkiDir)
+	idx := legacystore.NewIndexDB(ks, crl)
+	pk, err := New(cfg, ks, cs, idx, sp, crl)
+	if err != nil {
+		return nil, wrapForeignStorageError(err, pkiDir, "legacy PKI filesystem layout")
+	}
+	return pk, nil
 }
 
 // applyConfigDefaults fills zero values in cfg with sensible defaults.
+func wrapForeignStorageError(err error, target, layout string) error {
+	if errors.Is(err, storage.ErrForeignStorage) {
+		return fmt.Errorf("%s is not empty and does not look like the %s", target, layout)
+	}
+	return err
+}
+
+func validateOwnedStorages(parts ...any) error {
+	for _, part := range parts {
+		validator, ok := part.(storage.OwnershipValidator)
+		if !ok {
+			continue
+		}
+		if err := storage.ValidateOwnership(validator); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func applyConfigDefaults(cfg Config) Config {
 	if cfg.KeyAlgo == "" {
 		cfg.KeyAlgo = AlgoRSA
@@ -102,4 +148,3 @@ func (p *PKI) keyPassphrase(o options) (string, error) {
 	}
 	return "", errors.New("pki: key passphrase required; use WithPassphrase() or WithNoPass()")
 }
-

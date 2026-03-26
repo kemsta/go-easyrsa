@@ -31,6 +31,9 @@ func NewIndexDB(pkiDir string) *IndexDB {
 	return &IndexDB{path: fsJoin(pkiDir, "index.txt")}
 }
 
+func (db *IndexDB) Empty() (bool, error) { return OwnershipProbe{Dir: filepath.Dir(db.path)}.Empty() }
+func (db *IndexDB) Owned() (bool, error) { return OwnershipProbe{Dir: filepath.Dir(db.path)}.Owned() }
+
 func (db *IndexDB) Record(entry storage.IndexEntry) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
@@ -108,6 +111,20 @@ func (db *IndexDB) Query(filter storage.IndexFilter) ([]storage.IndexEntry, erro
 		result = append(result, e)
 	}
 	return result, nil
+}
+
+// ReplaceAll replaces the entire index with the provided entries.
+func (db *IndexDB) ReplaceAll(entries []storage.IndexEntry) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	cloned := make([]storage.IndexEntry, len(entries))
+	for i, e := range entries {
+		cloned[i] = e
+		if e.Serial != nil {
+			cloned[i].Serial = new(big.Int).Set(e.Serial)
+		}
+	}
+	return db.writeAll(cloned)
 }
 
 func (db *IndexDB) readAll() ([]storage.IndexEntry, error) {

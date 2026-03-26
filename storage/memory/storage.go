@@ -33,6 +33,10 @@ func newStore() *store {
 	}
 }
 
+func (s *store) empty() bool {
+	return len(s.pairs) == 0 && len(s.bySerial) == 0 && len(s.csrs) == 0 && len(s.entries) == 0 && len(s.crlPEM) == 0 && s.serial != nil && s.serial.Cmp(big.NewInt(1)) == 0
+}
+
 // New creates all five storage implementations sharing the same in-memory state.
 func New() (*KeyStorage, *CSRStorage, *IndexDB, *SerialProvider, *CRLHolder) {
 	s := newStore()
@@ -43,6 +47,13 @@ func New() (*KeyStorage, *CSRStorage, *IndexDB, *SerialProvider, *CRLHolder) {
 
 // KeyStorage implements storage.KeyStorage in memory.
 type KeyStorage struct{ s *store }
+
+func (ks *KeyStorage) Empty() (bool, error) {
+	ks.s.mu.RLock()
+	defer ks.s.mu.RUnlock()
+	return ks.s.empty(), nil
+}
+func (ks *KeyStorage) Owned() (bool, error) { return true, nil }
 
 func (ks *KeyStorage) Put(pair *cert.Pair) error {
 	ks.s.mu.Lock()
@@ -167,6 +178,13 @@ func (ks *KeyStorage) GetAll() ([]*cert.Pair, error) {
 // CSRStorage implements storage.CSRStorage in memory.
 type CSRStorage struct{ s *store }
 
+func (cs *CSRStorage) Empty() (bool, error) {
+	cs.s.mu.RLock()
+	defer cs.s.mu.RUnlock()
+	return cs.s.empty(), nil
+}
+func (cs *CSRStorage) Owned() (bool, error) { return true, nil }
+
 func (cs *CSRStorage) PutCSR(name string, csrPEM []byte) error {
 	cs.s.mu.Lock()
 	defer cs.s.mu.Unlock()
@@ -208,6 +226,13 @@ func (cs *CSRStorage) ListCSRs() ([]string, error) {
 
 // IndexDB implements storage.IndexDB in memory.
 type IndexDB struct{ s *store }
+
+func (db *IndexDB) Empty() (bool, error) {
+	db.s.mu.RLock()
+	defer db.s.mu.RUnlock()
+	return db.s.empty(), nil
+}
+func (db *IndexDB) Owned() (bool, error) { return true, nil }
 
 func (db *IndexDB) Record(entry storage.IndexEntry) error {
 	db.s.mu.Lock()
@@ -281,6 +306,13 @@ func (db *IndexDB) Query(filter storage.IndexFilter) ([]storage.IndexEntry, erro
 // SerialProvider implements storage.SerialProvider in memory.
 type SerialProvider struct{ s *store }
 
+func (sp *SerialProvider) Empty() (bool, error) {
+	sp.s.mu.RLock()
+	defer sp.s.mu.RUnlock()
+	return sp.s.empty(), nil
+}
+func (sp *SerialProvider) Owned() (bool, error) { return true, nil }
+
 func (sp *SerialProvider) Next() (*big.Int, error) {
 	sp.s.mu.Lock()
 	defer sp.s.mu.Unlock()
@@ -293,6 +325,13 @@ func (sp *SerialProvider) Next() (*big.Int, error) {
 
 // CRLHolder implements storage.CRLHolder in memory.
 type CRLHolder struct{ s *store }
+
+func (ch *CRLHolder) Empty() (bool, error) {
+	ch.s.mu.RLock()
+	defer ch.s.mu.RUnlock()
+	return ch.s.empty(), nil
+}
+func (ch *CRLHolder) Owned() (bool, error) { return true, nil }
 
 func (ch *CRLHolder) Put(pemBytes []byte) error {
 	ch.s.mu.Lock()
