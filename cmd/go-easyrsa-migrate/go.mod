@@ -1,4 +1,4 @@
-module github.com/kemsta/go-easyrsa/v2/cmd/go-easyrsa-migrate
+module github.com/kemsta/go-easyrsa/cmd/go-easyrsa-migrate
 
 go 1.25.0
 
@@ -14,5 +14,3 @@ require (
 	golang.org/x/crypto v0.49.0 // indirect
 	software.sslmate.com/src/go-pkcs12 v0.7.0 // indirect
 )
-
-replace github.com/kemsta/go-easyrsa/v2 => ../..

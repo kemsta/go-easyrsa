@@ -5,14 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kemsta/go-easyrsa/v2/internal/testutil"
 	"github.com/kemsta/go-easyrsa/v2/pki"
 	fsstore "github.com/kemsta/go-easyrsa/v2/storage/fs"
 )
 
 func TestCLI_MigratesLegacyToFS(t *testing.T) {
 	sourceDir := t.TempDir()
-	fixture := testutil.WriteLegacyFixture(t, sourceDir)
+	fixture := writeLegacyFixture(t, sourceDir)
 	targetDir := t.TempDir()
 
 	out, err := runCLI(t, "--from", sourceDir, "--to", targetDir)
@@ -32,16 +31,16 @@ func TestCLI_MigratesLegacyToFS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Serial: %v", err)
 	}
-	if serial.Cmp(testutil.MustSerial(t, fixture.ClientCurrent)) != 0 {
-		t.Fatalf("unexpected latest serial: got %s want %s", serial.Text(16), testutil.MustSerial(t, fixture.ClientCurrent).Text(16))
+	if serial.Cmp(mustSerial(t, fixture.ClientCurrent)) != 0 {
+		t.Fatalf("unexpected latest serial: got %s want %s", serial.Text(16), mustSerial(t, fixture.ClientCurrent).Text(16))
 	}
 }
 
 func TestCLI_RejectsNonEmptyTarget(t *testing.T) {
 	sourceDir := t.TempDir()
-	testutil.WriteLegacyFixture(t, sourceDir)
+	writeLegacyFixture(t, sourceDir)
 	targetDir := t.TempDir()
-	testutil.WriteLegacyFixture(t, targetDir)
+	writeLegacyFixture(t, targetDir)
 
 	_, err := runCLI(t, "--from", sourceDir, "--to", targetDir)
 	if err == nil {
@@ -51,7 +50,7 @@ func TestCLI_RejectsNonEmptyTarget(t *testing.T) {
 
 func TestCLI_RejectsUnknownFromType(t *testing.T) {
 	sourceDir := t.TempDir()
-	testutil.WriteLegacyFixture(t, sourceDir)
+	writeLegacyFixture(t, sourceDir)
 	targetDir := t.TempDir()
 
 	_, err := runCLI(t, "--from", sourceDir, "--to", targetDir, "--from-type", "wat")
@@ -62,7 +61,7 @@ func TestCLI_RejectsUnknownFromType(t *testing.T) {
 
 func TestCLI_RejectsUnknownToType(t *testing.T) {
 	sourceDir := t.TempDir()
-	testutil.WriteLegacyFixture(t, sourceDir)
+	writeLegacyFixture(t, sourceDir)
 	targetDir := t.TempDir()
 
 	_, err := runCLI(t, "--from", sourceDir, "--to", targetDir, "--to-type", "wat")
@@ -73,7 +72,7 @@ func TestCLI_RejectsUnknownToType(t *testing.T) {
 
 func TestCLI_RejectsSameSourceAndTarget(t *testing.T) {
 	dir := t.TempDir()
-	testutil.WriteLegacyFixture(t, dir)
+	writeLegacyFixture(t, dir)
 
 	_, err := runCLI(t, "--from", dir, "--to", dir)
 	if err == nil {
@@ -83,7 +82,7 @@ func TestCLI_RejectsSameSourceAndTarget(t *testing.T) {
 
 func TestCLI_MigratesWithoutCRL(t *testing.T) {
 	sourceDir := t.TempDir()
-	testutil.WriteLegacyFixture(t, sourceDir)
+	writeLegacyFixture(t, sourceDir)
 	if err := os.Remove(filepath.Join(sourceDir, "crl.pem")); err != nil {
 		t.Fatalf("Remove crl.pem: %v", err)
 	}

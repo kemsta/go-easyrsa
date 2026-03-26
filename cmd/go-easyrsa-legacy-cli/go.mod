@@ -1,4 +1,4 @@
-module github.com/kemsta/go-easyrsa/v2/cmd/go-easyrsa-legacy-cli
+module github.com/kemsta/go-easyrsa/cmd/go-easyrsa-legacy-cli
 
 go 1.25.0
 
@@ -19,5 +19,3 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	software.sslmate.com/src/go-pkcs12 v0.7.0 // indirect
 )
-
-replace github.com/kemsta/go-easyrsa/v2 => ../..
