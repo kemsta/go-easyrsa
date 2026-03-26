@@ -1,17 +1,15 @@
 package legacy_test
 
 import (
+	"github.com/kemsta/go-easyrsa/v2/internal/testutil"
+	"github.com/kemsta/go-easyrsa/v2/storage"
+	"github.com/kemsta/go-easyrsa/v2/storage/legacy"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
-	"github.com/kemsta/go-easyrsa/v2/internal/testutil"
-	"github.com/kemsta/go-easyrsa/v2/storage"
-	"github.com/kemsta/go-easyrsa/v2/storage/legacy"
 )
 
 func TestKeyStorage_GetByNameAndGetLastByName(t *testing.T) {
@@ -119,4 +117,52 @@ func TestReadOnlyComponentsRejectWrites(t *testing.T) {
 	assert.ErrorIs(t, crl.Put([]byte("pem")), storage.ErrReadOnly)
 	_, err = crl.Get()
 	require.NoError(t, err)
+}
+func TestLegacyKeyStorage_GetAllIncludesHistory(t *testing.T) {
+	dir := t.TempDir()
+	fixture := testutil.WriteLegacyFixture(t, dir)
+	ks := legacy.NewKeyStorage(dir, "ca")
+
+	pairs, err := ks.GetAll()
+	require.NoError(t, err)
+	require.Len(t, pairs, 5)
+
+	ids := make([]string, 0, len(pairs))
+	for _, pair := range pairs {
+		serial, err := pair.Serial()
+		require.NoError(t, err)
+		ids = append(ids, pair.Name+":"+storage.HexSerial(serial))
+	}
+	assert.ElementsMatch(t, []string{
+		"ca:" + storage.HexSerial(testutil.MustSerial(t, fixture.CAPair)),
+		"client1:" + storage.HexSerial(testutil.MustSerial(t, fixture.ClientOld)),
+		"client1:" + storage.HexSerial(testutil.MustSerial(t, fixture.ClientCurrent)),
+		"expired1:" + storage.HexSerial(testutil.MustSerial(t, fixture.ExpiredPair)),
+		"revoked1:" + storage.HexSerial(testutil.MustSerial(t, fixture.RevokedPair)),
+	}, ids)
+}
+
+func TestLegacyKeyStorage_GetByNameRejectsUnsafeNames(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteLegacyFixture(t, dir)
+	ks := legacy.NewKeyStorage(dir, "ca")
+
+	for _, name := range []string{"", ".", "../client1", `..\\client1`, "client/1", "client\\1"} {
+		_, err := ks.GetByName(name)
+		assert.ErrorIsf(t, err, storage.ErrNotFound, "name=%q", name)
+	}
+}
+
+func TestLegacyIndexDB_QueryByName(t *testing.T) {
+	dir := t.TempDir()
+	fixture := testutil.WriteLegacyFixture(t, dir)
+	ks := legacy.NewKeyStorage(dir, "ca")
+	crl := legacy.NewCRLHolder(dir)
+	db := legacy.NewIndexDB(ks, crl)
+
+	entries, err := db.Query(storage.IndexFilter{Name: "revoked1"})
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, storage.StatusRevoked, entries[0].Status)
+	assert.Zero(t, entries[0].Serial.Cmp(testutil.MustSerial(t, fixture.RevokedPair)))
 }
