@@ -39,6 +39,8 @@ Every `easyrsa` command has a direct Go equivalent:
 
 The filesystem backend reads and writes the same `index.txt`, `serial`, `private/`, `issued/`, `certs_by_serial/` layout - you can point it at an existing easy-rsa PKI directory and it just works.
 
+Compatibility with the legacy v1 filesystem layout is available via a separate **read-only** backend (`pki.NewWithLegacyFSRO(dir, cfg)`). See [docs/legacy.md](docs/legacy.md) for supported operations, limitations, and migration guidance.
+
 ---
 
 ## ✨ Features
