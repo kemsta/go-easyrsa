@@ -5,9 +5,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/kemsta/go-easyrsa/pki"
-	"github.com/kemsta/go-easyrsa/storage"
-	"github.com/kemsta/go-easyrsa/storage/memory"
+	"github.com/kemsta/go-easyrsa/v2/pki"
+	"github.com/kemsta/go-easyrsa/v2/storage"
+	"github.com/kemsta/go-easyrsa/v2/storage/memory"
 )
 
 func TestOwnershipValidators(t *testing.T) {

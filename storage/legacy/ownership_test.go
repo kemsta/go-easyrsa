@@ -7,9 +7,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/kemsta/go-easyrsa/internal/testutil"
-	"github.com/kemsta/go-easyrsa/pki"
-	"github.com/kemsta/go-easyrsa/storage/legacy"
+	"github.com/kemsta/go-easyrsa/v2/internal/testutil"
+	"github.com/kemsta/go-easyrsa/v2/pki"
+	"github.com/kemsta/go-easyrsa/v2/storage/legacy"
 )
 
 func TestOwnershipProbe_Owned(t *testing.T) {

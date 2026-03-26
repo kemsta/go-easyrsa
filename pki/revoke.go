@@ -10,9 +10,9 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/kemsta/go-easyrsa/cert"
-	pkicrypto "github.com/kemsta/go-easyrsa/crypto"
-	"github.com/kemsta/go-easyrsa/storage"
+	"github.com/kemsta/go-easyrsa/v2/cert"
+	pkicrypto "github.com/kemsta/go-easyrsa/v2/crypto"
+	"github.com/kemsta/go-easyrsa/v2/storage"
 )
 
 // Revoke revokes all certificates stored under the given name.

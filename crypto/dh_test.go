@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	pkicrypto "github.com/kemsta/go-easyrsa/crypto"
+	pkicrypto "github.com/kemsta/go-easyrsa/v2/crypto"
 )
 
 func TestGenDHParams_Basic(t *testing.T) {

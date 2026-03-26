@@ -9,8 +9,8 @@ import (
 	"go.mozilla.org/pkcs7"
 	gopkcs12 "software.sslmate.com/src/go-pkcs12"
 
-	"github.com/kemsta/go-easyrsa/cert"
-	pkicrypto "github.com/kemsta/go-easyrsa/crypto"
+	"github.com/kemsta/go-easyrsa/v2/cert"
+	pkicrypto "github.com/kemsta/go-easyrsa/v2/crypto"
 )
 
 // ExportP12 exports the named certificate and key as a PKCS#12 bundle.

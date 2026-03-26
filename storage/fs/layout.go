@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kemsta/go-easyrsa/storage"
+	"github.com/kemsta/go-easyrsa/v2/storage"
 )
 
 // OwnershipProbe checks whether a filesystem directory is empty or already

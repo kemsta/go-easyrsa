@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kemsta/go-easyrsa/internal/testutil"
-	"github.com/kemsta/go-easyrsa/pki"
-	fsstore "github.com/kemsta/go-easyrsa/storage/fs"
+	"github.com/kemsta/go-easyrsa/v2/internal/testutil"
+	"github.com/kemsta/go-easyrsa/v2/pki"
+	fsstore "github.com/kemsta/go-easyrsa/v2/storage/fs"
 )
 
 func TestCLI_MigratesLegacyToFS(t *testing.T) {

@@ -2,7 +2,7 @@
 
 [![Build Status](https://github.com/kemsta/go-easyrsa/actions/workflows/test.yml/badge.svg)](https://github.com/kemsta/go-easyrsa/actions/workflows/test.yml)
 [![Coverage Status](https://coveralls.io/repos/github/kemsta/go-easyrsa/badge.svg?branch=master)](https://coveralls.io/github/kemsta/go-easyrsa?branch=master)
-[![GoDoc](https://pkg.go.dev/badge/github.com/kemsta/go-easyrsa.svg)](https://pkg.go.dev/github.com/kemsta/go-easyrsa)
+[![GoDoc](https://pkg.go.dev/badge/github.com/kemsta/go-easyrsa/v2.svg)](https://pkg.go.dev/github.com/kemsta/go-easyrsa/v2)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 A drop-in replacement for [easy-rsa](https://github.com/OpenVPN/easy-rsa) as a Go library - no shell scripts, no `openssl` subprocess, same PKI directory layout.
@@ -65,7 +65,7 @@ For users who still want the tiny v1-style command UX, there is also a separate 
 ### Installation
 
 ```bash
-go get github.com/kemsta/go-easyrsa@latest
+go get github.com/kemsta/go-easyrsa/v2@latest
 ```
 
 ### Quick Start
@@ -77,7 +77,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/kemsta/go-easyrsa/pki"
+    "github.com/kemsta/go-easyrsa/v2/pki"
 )
 
 func main() {
@@ -218,7 +218,7 @@ dh, err := p.GenDH(2048)
 ### 🔌 Custom Storage
 
 ```go
-import "github.com/kemsta/go-easyrsa/storage/memory"
+import "github.com/kemsta/go-easyrsa/v2/storage/memory"
 
 // In-memory backend - ideal for tests
 ks, csr, idx, sp, crl := memory.New()

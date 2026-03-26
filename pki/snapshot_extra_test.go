@@ -7,9 +7,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/kemsta/go-easyrsa/internal/testutil"
-	"github.com/kemsta/go-easyrsa/pki"
-	fsstore "github.com/kemsta/go-easyrsa/storage/fs"
+	"github.com/kemsta/go-easyrsa/v2/internal/testutil"
+	"github.com/kemsta/go-easyrsa/v2/pki"
+	fsstore "github.com/kemsta/go-easyrsa/v2/storage/fs"
 )
 
 func TestExportSnapshot_WithoutCRL(t *testing.T) {

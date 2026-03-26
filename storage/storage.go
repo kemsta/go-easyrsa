@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kemsta/go-easyrsa/cert"
+	"github.com/kemsta/go-easyrsa/v2/cert"
 )
 
 // Sentinel errors returned by storage implementations.

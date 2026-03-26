@@ -1,7 +1,7 @@
 package pki
 
 import (
-	"github.com/kemsta/go-easyrsa/storage"
+	"github.com/kemsta/go-easyrsa/v2/storage"
 )
 
 // Cleaner is an optional interface that storage implementations may satisfy

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/kemsta/go-easyrsa/storage"
-	fsstore "github.com/kemsta/go-easyrsa/storage/fs"
-	legacystore "github.com/kemsta/go-easyrsa/storage/legacy"
+	"github.com/kemsta/go-easyrsa/v2/storage"
+	fsstore "github.com/kemsta/go-easyrsa/v2/storage/fs"
+	legacystore "github.com/kemsta/go-easyrsa/v2/storage/legacy"
 )
 
 // PKI orchestrates all certificate operations.

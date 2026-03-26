@@ -14,8 +14,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/kemsta/go-easyrsa/cert"
-	"github.com/kemsta/go-easyrsa/storage"
+	"github.com/kemsta/go-easyrsa/v2/cert"
+	"github.com/kemsta/go-easyrsa/v2/storage"
 )
 
 // InitDirs creates the required subdirectory structure under pkiDir.
