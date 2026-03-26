@@ -110,6 +110,20 @@ func (db *IndexDB) Query(filter storage.IndexFilter) ([]storage.IndexEntry, erro
 	return result, nil
 }
 
+// ReplaceAll replaces the entire index with the provided entries.
+func (db *IndexDB) ReplaceAll(entries []storage.IndexEntry) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	cloned := make([]storage.IndexEntry, len(entries))
+	for i, e := range entries {
+		cloned[i] = e
+		if e.Serial != nil {
+			cloned[i].Serial = new(big.Int).Set(e.Serial)
+		}
+	}
+	return db.writeAll(cloned)
+}
+
 func (db *IndexDB) readAll() ([]storage.IndexEntry, error) {
 	f, err := os.Open(db.path)
 	if err != nil {

@@ -41,6 +41,8 @@ The filesystem backend reads and writes the same `index.txt`, `serial`, `private
 
 Compatibility with the legacy v1 filesystem layout is available via a separate **read-only** backend (`pki.NewWithLegacyFSRO(dir, cfg)`). See [docs/legacy.md](docs/legacy.md) for supported operations, limitations, and migration guidance.
 
+For copy-based migration between storage backends, see [docs/migration.md](docs/migration.md). The official migrator CLI lives in the separate Cobra-based submodule under `cmd/go-easyrsa-migrate`, so library consumers do not pull CLI dependencies.
+
 ---
 
 ## ✨ Features
