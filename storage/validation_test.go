@@ -2,6 +2,7 @@ package storage_test
 
 import (
 	"errors"
+	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -40,4 +41,10 @@ func TestValidateOwnership_PropagatesErrors(t *testing.T) {
 
 	err = storage.ValidateOwnership(fakeOwnershipValidator{ownedErr: errors.New("owned-boom")})
 	require.EqualError(t, err, "owned-boom")
+}
+
+func TestHexSerial_UppercaseEvenLength(t *testing.T) {
+	require.Equal(t, "01", storage.HexSerial(big.NewInt(1)))
+	require.Equal(t, "0A", storage.HexSerial(big.NewInt(10)))
+	require.Equal(t, "0100", storage.HexSerial(big.NewInt(256)))
 }

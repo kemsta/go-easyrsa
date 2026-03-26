@@ -2,22 +2,21 @@ package fs_test
 
 import (
 	"crypto/x509/pkix"
-	"math/big"
-	"os"
-	"path/filepath"
-	"reflect"
-	"strings"
-	"sync"
-	"testing"
-	"time"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/kemsta/go-easyrsa/v2/cert"
 	"github.com/kemsta/go-easyrsa/v2/pki"
 	"github.com/kemsta/go-easyrsa/v2/storage"
 	fs "github.com/kemsta/go-easyrsa/v2/storage/fs"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"math/big"
+	"os"
+	"path/filepath"
+	"reflect"
+	"sort"
+	"strings"
+	"sync"
+	"testing"
+	"time"
 )
 
 // --- SerialProvider ---
@@ -353,4 +352,216 @@ func TestKeyStorage_GetBySerial_ReturnsStorageName_NotCN(t *testing.T) {
 
 	assert.Equal(t, "server1", got.Name,
 		"GetBySerial must return the storage entity name ('server1'), not the Subject CN ('VPN Server')")
+}
+func newFSPKI(t *testing.T) (string, *pki.PKI) {
+	t.Helper()
+	dir := t.TempDir()
+	pk, err := pki.NewWithFS(dir, pki.Config{NoPass: true, SequentialSerial: true})
+	require.NoError(t, err)
+	return dir, pk
+}
+
+func mustSerial(t *testing.T, pair *cert.Pair) *big.Int {
+	t.Helper()
+	serial, err := pair.Serial()
+	require.NoError(t, err)
+	return new(big.Int).Set(serial)
+}
+
+func collectExportedPairs(t *testing.T, exporter storage.PairExporter) []*cert.Pair {
+	t.Helper()
+	var pairs []*cert.Pair
+	err := exporter.ExportPairs(func(pair *cert.Pair) error {
+		cp := &cert.Pair{Name: pair.Name}
+		if pair.CertPEM != nil {
+			cp.CertPEM = append([]byte(nil), pair.CertPEM...)
+		}
+		if pair.KeyPEM != nil {
+			cp.KeyPEM = append([]byte(nil), pair.KeyPEM...)
+		}
+		pairs = append(pairs, cp)
+		return nil
+	})
+	require.NoError(t, err)
+	return pairs
+}
+
+func pairIDs(t *testing.T, pairs []*cert.Pair) []string {
+	t.Helper()
+	ids := make([]string, 0, len(pairs))
+	for _, pair := range pairs {
+		serial, err := pair.Serial()
+		require.NoError(t, err)
+		ids = append(ids, pair.Name+":"+storage.HexSerial(serial))
+	}
+	sort.Strings(ids)
+	return ids
+}
+func TestKeyStorage_PublicCRUDAndDeleteSemantics(t *testing.T) {
+	dir, pk := newFSPKI(t)
+	_, err := pk.BuildCA()
+	require.NoError(t, err)
+	client1, err := pk.BuildClientFull("client1")
+	require.NoError(t, err)
+	client2, err := pk.BuildClientFull("client2")
+	require.NoError(t, err)
+
+	ks := fs.NewKeyStorage(dir, "ca")
+
+	pairs, err := ks.GetByName("client1")
+	require.NoError(t, err)
+	require.Len(t, pairs, 1)
+	assert.Equal(t, "client1", pairs[0].Name)
+
+	last, err := ks.GetLastByName("client1")
+	require.NoError(t, err)
+	assert.Equal(t, "client1", last.Name)
+
+	bySerial, err := ks.GetBySerial(mustSerial(t, client1))
+	require.NoError(t, err)
+	assert.Equal(t, "client1", bySerial.Name)
+
+	all, err := ks.GetAll()
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+	assert.ElementsMatch(t, []string{"ca", "client1", "client2"}, []string{all[0].Name, all[1].Name, all[2].Name})
+
+	serial2 := mustSerial(t, client2)
+	serialHex2 := storage.HexSerial(serial2)
+	require.NoError(t, ks.DeleteBySerial(serial2))
+	_, err = ks.GetBySerial(serial2)
+	assert.ErrorIs(t, err, storage.ErrNotFound)
+	_, err = os.Stat(filepath.Join(dir, "certs_by_serial", serialHex2+".pem"))
+	assert.ErrorIs(t, err, os.ErrNotExist)
+	_, err = os.Stat(filepath.Join(dir, "certs_by_serial", serialHex2+".name"))
+	assert.ErrorIs(t, err, os.ErrNotExist)
+	_, err = ks.GetLastByName("client2")
+	require.NoError(t, err, "DeleteBySerial must not remove the named certificate view")
+
+	serial1 := mustSerial(t, client1)
+	require.NoError(t, ks.DeleteByName("client1"))
+	_, err = ks.GetByName("client1")
+	assert.ErrorIs(t, err, storage.ErrNotFound)
+	_, err = ks.GetBySerial(serial1)
+	assert.ErrorIs(t, err, storage.ErrNotFound)
+	_, err = os.Stat(filepath.Join(dir, "issued", "client1.crt"))
+	assert.ErrorIs(t, err, os.ErrNotExist)
+	_, err = os.Stat(filepath.Join(dir, "private", "client1.key"))
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestKeyStorage_GetLastByNameFallsBackToRevokedStorage(t *testing.T) {
+	dir, pk := newFSPKI(t)
+	_, err := pk.BuildCA()
+	require.NoError(t, err)
+	client, err := pk.BuildClientFull("client1")
+	require.NoError(t, err)
+	require.NoError(t, pk.Revoke("client1", cert.ReasonKeyCompromise))
+
+	ks := fs.NewKeyStorage(dir, "ca")
+	pair, err := ks.GetLastByName("client1")
+	require.NoError(t, err)
+	assert.Equal(t, "client1", pair.Name)
+	assert.NotEmpty(t, pair.CertPEM)
+	assert.NotEmpty(t, pair.KeyPEM)
+	assert.Zero(t, mustSerial(t, pair).Cmp(mustSerial(t, client)))
+}
+
+func TestKeyStorage_CleanOrphansRemovesUnknownCertArtifacts(t *testing.T) {
+	dir, pk := newFSPKI(t)
+	caPair, err := pk.BuildCA()
+	require.NoError(t, err)
+	client1, err := pk.BuildClientFull("client1")
+	require.NoError(t, err)
+	client2, err := pk.BuildClientFull("client2")
+	require.NoError(t, err)
+
+	knownSerials := map[string]bool{
+		storage.HexSerial(mustSerial(t, caPair)):  true,
+		storage.HexSerial(mustSerial(t, client1)): true,
+	}
+
+	ks := fs.NewKeyStorage(dir, "ca")
+	require.NoError(t, ks.CleanOrphans(knownSerials))
+
+	serialHex2 := storage.HexSerial(mustSerial(t, client2))
+	_, err = os.Stat(filepath.Join(dir, "certs_by_serial", serialHex2+".pem"))
+	assert.ErrorIs(t, err, os.ErrNotExist)
+	_, err = os.Stat(filepath.Join(dir, "certs_by_serial", serialHex2+".name"))
+	assert.ErrorIs(t, err, os.ErrNotExist)
+	_, err = os.Stat(filepath.Join(dir, "issued", "client2.crt"))
+	assert.ErrorIs(t, err, os.ErrNotExist)
+	_, err = os.Stat(filepath.Join(dir, "private", "client2.key"))
+	require.NoError(t, err, "CleanOrphans must preserve private keys because they may be shared with a valid renewal")
+
+	_, err = ks.GetBySerial(mustSerial(t, client1))
+	require.NoError(t, err)
+	_, err = os.Stat(filepath.Join(dir, "ca.crt"))
+	require.NoError(t, err)
+}
+
+func TestCSRStorage_PublicCRUD(t *testing.T) {
+	dir, _ := newFSPKI(t)
+	cs := fs.NewCSRStorage(dir)
+
+	require.NoError(t, cs.PutCSR("client1", []byte("csr-1")))
+	require.NoError(t, cs.PutCSR("client2", []byte("csr-2")))
+
+	csr, err := cs.GetCSR("client1")
+	require.NoError(t, err)
+	assert.Equal(t, []byte("csr-1"), csr)
+
+	names, err := cs.ListCSRs()
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"client1", "client2"}, names)
+
+	require.NoError(t, cs.DeleteCSR("client1"))
+	_, err = cs.GetCSR("client1")
+	assert.ErrorIs(t, err, storage.ErrNotFound)
+	assert.ErrorIs(t, cs.DeleteCSR("client1"), storage.ErrNotFound)
+}
+
+func TestSerialProvider_SetNextPersistsAcrossInstances(t *testing.T) {
+	dir, _ := newFSPKI(t)
+	sp := fs.NewSerialProvider(dir)
+
+	assert.Error(t, sp.SetNext(nil))
+	assert.Error(t, sp.SetNext(big.NewInt(0)))
+
+	require.NoError(t, sp.SetNext(big.NewInt(42)))
+	next, err := sp.Next()
+	require.NoError(t, err)
+	assert.Zero(t, next.Cmp(big.NewInt(42)))
+
+	sp2 := fs.NewSerialProvider(dir)
+	next, err = sp2.Next()
+	require.NoError(t, err)
+	assert.Zero(t, next.Cmp(big.NewInt(43)))
+}
+
+func TestCRLHolder_PublicBehavior(t *testing.T) {
+	dir, pk := newFSPKI(t)
+	ch := fs.NewCRLHolder(dir)
+
+	list, err := ch.Get()
+	require.NoError(t, err)
+	assert.Empty(t, list.RevokedCertificateEntries)
+
+	_, err = pk.BuildCA()
+	require.NoError(t, err)
+	_, err = pk.BuildClientFull("client1")
+	require.NoError(t, err)
+	require.NoError(t, pk.Revoke("client1", cert.ReasonKeyCompromise))
+	crlPEM, err := pk.GenCRL()
+	require.NoError(t, err)
+
+	require.NoError(t, ch.Put(crlPEM))
+	list, err = ch.Get()
+	require.NoError(t, err)
+	require.Len(t, list.RevokedCertificateEntries, 1)
+
+	require.NoError(t, ch.Delete())
+	list, err = ch.Get()
+	require.NoError(t, err)
+	assert.Empty(t, list.RevokedCertificateEntries)
 }
