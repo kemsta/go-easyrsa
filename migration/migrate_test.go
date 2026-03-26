@@ -49,7 +49,8 @@ func TestMigrate_FSToMemoryAndBack(t *testing.T) {
 	require.NoError(t, migration.Migrate(legacyPKI, fsPKI))
 
 	ks, cs, idx, sp, crl := memory.New()
-	memoryPKI := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+	memoryPKI, err := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+	require.NoError(t, err)
 	require.NoError(t, migration.Migrate(fsPKI, memoryPKI))
 
 	fsSnap, err := fsPKI.ExportSnapshot()

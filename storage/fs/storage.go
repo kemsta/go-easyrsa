@@ -62,6 +62,9 @@ func NewKeyStorage(pkiDir, caName string) *KeyStorage {
 	return &KeyStorage{pkiDir: pkiDir, caName: caName}
 }
 
+func (ks *KeyStorage) Empty() (bool, error) { return OwnershipProbe{Dir: ks.pkiDir}.Empty() }
+func (ks *KeyStorage) Owned() (bool, error) { return OwnershipProbe{Dir: ks.pkiDir}.Owned() }
+
 func (ks *KeyStorage) certPath(name string) string {
 	if name == ks.caName {
 		return fsJoin(ks.pkiDir, "ca.crt")
@@ -436,6 +439,9 @@ func NewCSRStorage(pkiDir string) *CSRStorage {
 	return &CSRStorage{pkiDir: pkiDir}
 }
 
+func (cs *CSRStorage) Empty() (bool, error) { return OwnershipProbe{Dir: cs.pkiDir}.Empty() }
+func (cs *CSRStorage) Owned() (bool, error) { return OwnershipProbe{Dir: cs.pkiDir}.Owned() }
+
 func (cs *CSRStorage) reqPath(name string) string {
 	return fsJoin(cs.pkiDir, "reqs", name+".req")
 }
@@ -495,6 +501,13 @@ func NewSerialProvider(pkiDir string) *SerialProvider {
 	return &SerialProvider{path: fsJoin(pkiDir, "serial")}
 }
 
+func (sp *SerialProvider) Empty() (bool, error) {
+	return OwnershipProbe{Dir: filepath.Dir(sp.path)}.Empty()
+}
+func (sp *SerialProvider) Owned() (bool, error) {
+	return OwnershipProbe{Dir: filepath.Dir(sp.path)}.Owned()
+}
+
 func (sp *SerialProvider) Next() (*big.Int, error) {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
@@ -531,6 +544,9 @@ type CRLHolder struct {
 func NewCRLHolder(pkiDir string) *CRLHolder {
 	return &CRLHolder{path: fsJoin(pkiDir, "crl.pem")}
 }
+
+func (ch *CRLHolder) Empty() (bool, error) { return OwnershipProbe{Dir: filepath.Dir(ch.path)}.Empty() }
+func (ch *CRLHolder) Owned() (bool, error) { return OwnershipProbe{Dir: filepath.Dir(ch.path)}.Owned() }
 
 func (ch *CRLHolder) Put(pemBytes []byte) error {
 	return writeAtomic(ch.path, pemBytes)

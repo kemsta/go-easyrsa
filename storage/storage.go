@@ -13,15 +13,47 @@ import (
 
 // Sentinel errors returned by storage implementations.
 var (
-	ErrNotFound = errors.New("not found")
-	ErrConflict = errors.New("already exists")
-	ErrReadOnly = errors.New("read-only storage")
+	ErrNotFound       = errors.New("not found")
+	ErrConflict       = errors.New("already exists")
+	ErrReadOnly       = errors.New("read-only storage")
+	ErrForeignStorage = errors.New("storage does not own existing data")
 )
 
 // ReadOnly is an optional interface for storage components that explicitly
 // declare themselves read-only.
 type ReadOnly interface {
 	ReadOnly() bool
+}
+
+// OwnershipValidator is an optional interface for storage backends that manage
+// an external namespace (filesystem path, bucket prefix, database schema, etc.)
+// and need to verify whether pre-existing data belongs to that backend.
+//
+// Empty reports whether the target namespace is currently empty (or absent).
+// Owned reports whether a non-empty namespace already belongs to this backend.
+type OwnershipValidator interface {
+	Empty() (bool, error)
+	Owned() (bool, error)
+}
+
+// ValidateOwnership accepts an empty namespace and otherwise requires the
+// backend to confirm that the existing data already belongs to it.
+func ValidateOwnership(v OwnershipValidator) error {
+	empty, err := v.Empty()
+	if err != nil {
+		return err
+	}
+	if empty {
+		return nil
+	}
+	owned, err := v.Owned()
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return ErrForeignStorage
+	}
+	return nil
 }
 
 // CertStatus represents the current state of a certificate in the index.

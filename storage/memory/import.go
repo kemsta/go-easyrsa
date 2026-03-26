@@ -63,7 +63,12 @@ func (sp *SerialProvider) SetNext(next *big.Int) error {
 }
 
 var (
-	_ storage.PairReplacer  = (*KeyStorage)(nil)
-	_ storage.IndexReplacer = (*IndexDB)(nil)
-	_ storage.SerialSetter  = (*SerialProvider)(nil)
+	_ storage.PairReplacer       = (*KeyStorage)(nil)
+	_ storage.IndexReplacer      = (*IndexDB)(nil)
+	_ storage.SerialSetter       = (*SerialProvider)(nil)
+	_ storage.OwnershipValidator = (*KeyStorage)(nil)
+	_ storage.OwnershipValidator = (*CSRStorage)(nil)
+	_ storage.OwnershipValidator = (*IndexDB)(nil)
+	_ storage.OwnershipValidator = (*SerialProvider)(nil)
+	_ storage.OwnershipValidator = (*CRLHolder)(nil)
 )
