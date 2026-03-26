@@ -1,4 +1,4 @@
-module github.com/kemsta/go-easyrsa
+module github.com/kemsta/go-easyrsa/v2
 
 go 1.25.0
 

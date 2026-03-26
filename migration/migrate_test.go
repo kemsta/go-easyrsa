@@ -7,11 +7,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/kemsta/go-easyrsa/internal/testutil"
-	"github.com/kemsta/go-easyrsa/migration"
-	"github.com/kemsta/go-easyrsa/pki"
-	"github.com/kemsta/go-easyrsa/storage"
-	"github.com/kemsta/go-easyrsa/storage/memory"
+	"github.com/kemsta/go-easyrsa/v2/internal/testutil"
+	"github.com/kemsta/go-easyrsa/v2/migration"
+	"github.com/kemsta/go-easyrsa/v2/pki"
+	"github.com/kemsta/go-easyrsa/v2/storage"
+	"github.com/kemsta/go-easyrsa/v2/storage/memory"
 )
 
 func TestMigrate_LegacyToFS(t *testing.T) {

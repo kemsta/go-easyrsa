@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/kemsta/go-easyrsa/storage"
+	"github.com/kemsta/go-easyrsa/v2/storage"
 )
 
 // pemEncodeCert PEM-encodes a DER certificate.

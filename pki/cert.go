@@ -5,9 +5,9 @@ import (
 	"crypto/x509"
 	"time"
 
-	"github.com/kemsta/go-easyrsa/cert"
-	pkicrypto "github.com/kemsta/go-easyrsa/crypto"
-	"github.com/kemsta/go-easyrsa/storage"
+	"github.com/kemsta/go-easyrsa/v2/cert"
+	pkicrypto "github.com/kemsta/go-easyrsa/v2/crypto"
+	"github.com/kemsta/go-easyrsa/v2/storage"
 )
 
 // BuildClientFull generates a client key and issues a signed client certificate.

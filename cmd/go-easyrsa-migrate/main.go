@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/kemsta/go-easyrsa/pki"
+	"github.com/kemsta/go-easyrsa/v2/pki"
 )
 
 func main() {

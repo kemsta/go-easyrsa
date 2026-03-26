@@ -14,10 +14,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kemsta/go-easyrsa/cert"
-	"github.com/kemsta/go-easyrsa/pki"
-	fs "github.com/kemsta/go-easyrsa/storage/fs"
-	"github.com/kemsta/go-easyrsa/storage"
+	"github.com/kemsta/go-easyrsa/v2/cert"
+	"github.com/kemsta/go-easyrsa/v2/pki"
+	"github.com/kemsta/go-easyrsa/v2/storage"
+	fs "github.com/kemsta/go-easyrsa/v2/storage/fs"
 )
 
 // --- SerialProvider ---
@@ -146,7 +146,7 @@ func TestParseIndexLine_InvalidSerial(t *testing.T) {
 
 	_, err := db.Query(storage.IndexFilter{})
 	if err == nil {
-		t.Errorf("Query must return an error when index.txt contains a malformed serial; "+
+		t.Errorf("Query must return an error when index.txt contains a malformed serial; " +
 			"silently skipping corrupt lines makes revoked certs invisible to callers")
 	}
 }
@@ -326,8 +326,8 @@ func TestKeyStorage_GetBySerial_ReturnsStorageName_NotCN(t *testing.T) {
 	require.NoError(t, fs.InitDirs(dir))
 
 	p, err := pki.NewWithFS(dir, pki.Config{
-		NoPass: true,
-		DNMode: pki.DNModeOrg,
+		NoPass:       true,
+		DNMode:       pki.DNModeOrg,
 		SubjTemplate: pkix.Name{Organization: []string{"Acme Corp"}},
 	})
 	require.NoError(t, err)

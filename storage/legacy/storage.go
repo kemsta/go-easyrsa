@@ -18,9 +18,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kemsta/go-easyrsa/cert"
-	"github.com/kemsta/go-easyrsa/storage"
-	fsstore "github.com/kemsta/go-easyrsa/storage/fs"
+	"github.com/kemsta/go-easyrsa/v2/cert"
+	"github.com/kemsta/go-easyrsa/v2/storage"
+	fsstore "github.com/kemsta/go-easyrsa/v2/storage/fs"
 )
 
 // KeyStorage implements storage.KeyStorage for the legacy v1 filesystem layout.

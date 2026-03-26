@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/kemsta/go-easyrsa/pki"
+	"github.com/kemsta/go-easyrsa/v2/pki"
 )
 
 func runCLI(t *testing.T, args ...string) (string, error) {

@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kemsta/go-easyrsa/cert"
-	"github.com/kemsta/go-easyrsa/storage"
+	"github.com/kemsta/go-easyrsa/v2/cert"
+	"github.com/kemsta/go-easyrsa/v2/storage"
 )
 
 // ExportPairs streams all legacy pairs without materializing their PEM payloads

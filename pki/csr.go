@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kemsta/go-easyrsa/cert"
-	pkicrypto "github.com/kemsta/go-easyrsa/crypto"
-	"github.com/kemsta/go-easyrsa/storage"
+	"github.com/kemsta/go-easyrsa/v2/cert"
+	pkicrypto "github.com/kemsta/go-easyrsa/v2/crypto"
+	"github.com/kemsta/go-easyrsa/v2/storage"
 )
 
 // GenReq generates a private key and a Certificate Signing Request.
@@ -244,4 +244,3 @@ func (p *PKI) SignReq(name string, certType cert.CertType, opts ...Option) (*cer
 
 	return pair, nil
 }
-

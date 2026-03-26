@@ -1,6 +1,6 @@
 package migration
 
-import "github.com/kemsta/go-easyrsa/pki"
+import "github.com/kemsta/go-easyrsa/v2/pki"
 
 // Migrate exports the source PKI metadata and streams its pairs into the target PKI.
 func Migrate(source, target *pki.PKI) error {

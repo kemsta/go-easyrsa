@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kemsta/go-easyrsa/cert"
-	"github.com/kemsta/go-easyrsa/storage"
+	"github.com/kemsta/go-easyrsa/v2/cert"
+	"github.com/kemsta/go-easyrsa/v2/storage"
 )
 
 // indexTimeFormat is the UTCTime format used in index.txt (yyMMddHHmmssZ).

@@ -5,8 +5,8 @@ package e2e
 import (
 	"testing"
 
-	"github.com/kemsta/go-easyrsa/internal/testutil"
-	"github.com/kemsta/go-easyrsa/pki"
+	"github.com/kemsta/go-easyrsa/v2/internal/testutil"
+	"github.com/kemsta/go-easyrsa/v2/pki"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

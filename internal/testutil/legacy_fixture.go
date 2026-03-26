@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kemsta/go-easyrsa/cert"
-	pkicrypto "github.com/kemsta/go-easyrsa/crypto"
-	"github.com/kemsta/go-easyrsa/pki"
-	"github.com/kemsta/go-easyrsa/storage/memory"
+	"github.com/kemsta/go-easyrsa/v2/cert"
+	pkicrypto "github.com/kemsta/go-easyrsa/v2/crypto"
+	"github.com/kemsta/go-easyrsa/v2/pki"
+	"github.com/kemsta/go-easyrsa/v2/storage/memory"
 )
 
 // LegacyFixture contains a v1-style PKI tree written to disk for tests.

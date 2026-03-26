@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kemsta/go-easyrsa/internal/testutil"
-	"github.com/kemsta/go-easyrsa/storage"
-	"github.com/kemsta/go-easyrsa/storage/legacy"
+	"github.com/kemsta/go-easyrsa/v2/internal/testutil"
+	"github.com/kemsta/go-easyrsa/v2/storage"
+	"github.com/kemsta/go-easyrsa/v2/storage/legacy"
 )
 
 func TestKeyStorage_GetByNameAndGetLastByName(t *testing.T) {

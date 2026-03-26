@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kemsta/go-easyrsa/cert"
-	"github.com/kemsta/go-easyrsa/storage"
+	"github.com/kemsta/go-easyrsa/v2/cert"
+	"github.com/kemsta/go-easyrsa/v2/storage"
 )
 
 // store holds all shared in-memory state.

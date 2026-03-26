@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/kemsta/go-easyrsa/cert"
+	"github.com/kemsta/go-easyrsa/v2/cert"
 )
 
 func TestCLI_BuildCA(t *testing.T) {
