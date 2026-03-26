@@ -110,7 +110,7 @@ That directory name is treated as the storage entity name. The old layout does n
 
 1. Open the old PKI with `pki.NewWithLegacyFSRO(...)`
 2. Read/verify/export the data you need
-3. Run a migration CLI/tool to rewrite data into the current easy-rsa-compatible layout
+3. Run the migration CLI/tool (see [migration.md](migration.md)) to rewrite data into the current easy-rsa-compatible layout
 4. Re-open the migrated PKI with `pki.NewWithFS(...)`
 
 ## Summary

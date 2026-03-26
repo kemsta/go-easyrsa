@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -333,6 +334,70 @@ func serialFromCertFile(path string) (*big.Int, error) {
 func (ks *KeyStorage) GetAll() ([]*cert.Pair, error) {
 	ks.mu.RLock()
 	defer ks.mu.RUnlock()
+
+	serialDir := fsJoin(ks.pkiDir, "certs_by_serial")
+	entries, err := os.ReadDir(serialDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ks.getNamedPairsLocked()
+		}
+		return nil, err
+	}
+
+	var pairs []*cert.Pair
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".pem") {
+			continue
+		}
+		serialHex := strings.TrimSuffix(e.Name(), ".pem")
+		certPEM, err := os.ReadFile(fsJoin(serialDir, e.Name()))
+		if err != nil {
+			return nil, err
+		}
+		block, _ := pem.Decode(certPEM)
+		if block == nil {
+			continue
+		}
+		crt, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, err
+		}
+
+		name := crt.Subject.CommonName
+		if data, err := os.ReadFile(fsJoin(serialDir, serialHex+".name")); err == nil {
+			if n := strings.TrimSpace(string(data)); n != "" {
+				name = n
+			}
+		}
+
+		pair := &cert.Pair{Name: name, CertPEM: certPEM}
+		if keyPEM, err := os.ReadFile(ks.keyPath(name)); err == nil {
+			pair.KeyPEM = keyPEM
+		}
+		pairs = append(pairs, pair)
+	}
+
+	sort.Slice(pairs, func(i, j int) bool {
+		si, errI := pairs[i].Serial()
+		sj, errJ := pairs[j].Serial()
+		switch {
+		case errI != nil && errJ != nil:
+			return pairs[i].Name < pairs[j].Name
+		case errI != nil:
+			return true
+		case errJ != nil:
+			return false
+		}
+		if cmp := si.Cmp(sj); cmp != 0 {
+			return cmp < 0
+		}
+		return pairs[i].Name < pairs[j].Name
+	})
+
+	return pairs, nil
+}
+
+func (ks *KeyStorage) getNamedPairsLocked() ([]*cert.Pair, error) {
 	var pairs []*cert.Pair
 
 	if caPair, err := ks.getLastByNameLocked(ks.caName); err == nil {
