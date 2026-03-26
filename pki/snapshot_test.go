@@ -53,7 +53,8 @@ func TestImportSnapshot_MemoryPreservesHistoryAndStatuses(t *testing.T) {
 	require.NoError(t, err)
 
 	ks, cs, idx, sp, crl := memory.New()
-	target := pki.New(pki.Config{CAName: snapshot.CAName}, ks, cs, idx, sp, crl)
+	target, err := pki.New(pki.Config{CAName: snapshot.CAName}, ks, cs, idx, sp, crl)
+	require.NoError(t, err)
 	require.NoError(t, target.ImportSnapshot(snapshot, source.ExportPairs))
 
 	pairs, err := ks.GetByName("client1")

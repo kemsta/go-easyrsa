@@ -39,7 +39,9 @@ func NewKeyStorage(pkiDir, caName string) *KeyStorage {
 	return &KeyStorage{pkiDir: pkiDir, caName: caName}
 }
 
-func (ks *KeyStorage) ReadOnly() bool { return true }
+func (ks *KeyStorage) Empty() (bool, error) { return OwnershipProbe{Dir: ks.pkiDir}.Empty() }
+func (ks *KeyStorage) Owned() (bool, error) { return OwnershipProbe{Dir: ks.pkiDir}.Owned() }
+func (ks *KeyStorage) ReadOnly() bool       { return true }
 
 func (ks *KeyStorage) Put(_ *cert.Pair) error          { return storage.ErrReadOnly }
 func (ks *KeyStorage) DeleteByName(_ string) error     { return storage.ErrReadOnly }
@@ -228,7 +230,9 @@ func NewIndexDB(ks *KeyStorage, crl storage.CRLHolder) *IndexDB {
 	return &IndexDB{storage: ks, crl: crl}
 }
 
-func (db *IndexDB) ReadOnly() bool { return true }
+func (db *IndexDB) Empty() (bool, error) { return db.storage.Empty() }
+func (db *IndexDB) Owned() (bool, error) { return db.storage.Owned() }
+func (db *IndexDB) ReadOnly() bool       { return true }
 
 func (db *IndexDB) Record(_ storage.IndexEntry) error { return storage.ErrReadOnly }
 
@@ -313,12 +317,14 @@ func (db *IndexDB) revokedMap() (map[string]revokedMeta, error) {
 }
 
 // CSRStorage is a read-only placeholder for legacy PKIs, which have no CSR store.
-type CSRStorage struct{}
+type CSRStorage struct{ pkiDir string }
 
 // NewCSRStorage creates a read-only CSRStorage stub.
-func NewCSRStorage() *CSRStorage { return &CSRStorage{} }
+func NewCSRStorage(pkiDir string) *CSRStorage { return &CSRStorage{pkiDir: pkiDir} }
 
-func (cs *CSRStorage) ReadOnly() bool { return true }
+func (cs *CSRStorage) Empty() (bool, error) { return OwnershipProbe{Dir: cs.pkiDir}.Empty() }
+func (cs *CSRStorage) Owned() (bool, error) { return OwnershipProbe{Dir: cs.pkiDir}.Owned() }
+func (cs *CSRStorage) ReadOnly() bool       { return true }
 
 func (cs *CSRStorage) PutCSR(_ string, _ []byte) error { return storage.ErrReadOnly }
 func (cs *CSRStorage) GetCSR(_ string) ([]byte, error) { return nil, storage.ErrReadOnly }
@@ -326,27 +332,32 @@ func (cs *CSRStorage) DeleteCSR(_ string) error        { return storage.ErrReadO
 func (cs *CSRStorage) ListCSRs() ([]string, error)     { return nil, storage.ErrReadOnly }
 
 // SerialProvider is a read-only placeholder for legacy PKIs.
-type SerialProvider struct{}
+type SerialProvider struct{ pkiDir string }
 
 // NewSerialProvider creates a read-only SerialProvider stub.
-func NewSerialProvider() *SerialProvider { return &SerialProvider{} }
+func NewSerialProvider(pkiDir string) *SerialProvider { return &SerialProvider{pkiDir: pkiDir} }
 
-func (sp *SerialProvider) ReadOnly() bool { return true }
+func (sp *SerialProvider) Empty() (bool, error) { return OwnershipProbe{Dir: sp.pkiDir}.Empty() }
+func (sp *SerialProvider) Owned() (bool, error) { return OwnershipProbe{Dir: sp.pkiDir}.Owned() }
+func (sp *SerialProvider) ReadOnly() bool       { return true }
 func (sp *SerialProvider) Next() (*big.Int, error) {
 	return nil, storage.ErrReadOnly
 }
 
 // CRLHolder provides read-only access to pkiDir/crl.pem.
 type CRLHolder struct {
+	pkiDir string
 	reader storage.CRLHolder
 }
 
 // NewCRLHolder creates a read-only CRLHolder backed by pkiDir/crl.pem.
 func NewCRLHolder(pkiDir string) *CRLHolder {
-	return &CRLHolder{reader: fsstore.NewCRLHolder(pkiDir)}
+	return &CRLHolder{pkiDir: pkiDir, reader: fsstore.NewCRLHolder(pkiDir)}
 }
 
-func (ch *CRLHolder) ReadOnly() bool { return true }
+func (ch *CRLHolder) Empty() (bool, error) { return OwnershipProbe{Dir: ch.pkiDir}.Empty() }
+func (ch *CRLHolder) Owned() (bool, error) { return OwnershipProbe{Dir: ch.pkiDir}.Owned() }
+func (ch *CRLHolder) ReadOnly() bool       { return true }
 func (ch *CRLHolder) Put(_ []byte) error {
 	return storage.ErrReadOnly
 }
@@ -356,14 +367,19 @@ func (ch *CRLHolder) Get() (*x509.RevocationList, error) {
 }
 
 var (
-	_ storage.KeyStorage     = (*KeyStorage)(nil)
-	_ storage.IndexDB        = (*IndexDB)(nil)
-	_ storage.CSRStorage     = (*CSRStorage)(nil)
-	_ storage.SerialProvider = (*SerialProvider)(nil)
-	_ storage.CRLHolder      = (*CRLHolder)(nil)
-	_ storage.ReadOnly       = (*KeyStorage)(nil)
-	_ storage.ReadOnly       = (*IndexDB)(nil)
-	_ storage.ReadOnly       = (*CSRStorage)(nil)
-	_ storage.ReadOnly       = (*SerialProvider)(nil)
-	_ storage.ReadOnly       = (*CRLHolder)(nil)
+	_ storage.KeyStorage         = (*KeyStorage)(nil)
+	_ storage.IndexDB            = (*IndexDB)(nil)
+	_ storage.CSRStorage         = (*CSRStorage)(nil)
+	_ storage.SerialProvider     = (*SerialProvider)(nil)
+	_ storage.CRLHolder          = (*CRLHolder)(nil)
+	_ storage.ReadOnly           = (*KeyStorage)(nil)
+	_ storage.ReadOnly           = (*IndexDB)(nil)
+	_ storage.ReadOnly           = (*CSRStorage)(nil)
+	_ storage.ReadOnly           = (*SerialProvider)(nil)
+	_ storage.ReadOnly           = (*CRLHolder)(nil)
+	_ storage.OwnershipValidator = (*KeyStorage)(nil)
+	_ storage.OwnershipValidator = (*IndexDB)(nil)
+	_ storage.OwnershipValidator = (*CSRStorage)(nil)
+	_ storage.OwnershipValidator = (*SerialProvider)(nil)
+	_ storage.OwnershipValidator = (*CRLHolder)(nil)
 )

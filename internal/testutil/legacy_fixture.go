@@ -37,7 +37,8 @@ func WriteLegacyFixture(t *testing.T, dir string) LegacyFixture {
 	t.Helper()
 
 	ks, cs, idx, sp, crl := memory.New()
-	p := pki.New(pki.Config{NoPass: true, SequentialSerial: true, KeyAlgo: pki.AlgoRSA, KeySize: 1024}, ks, cs, idx, sp, crl)
+	p, err := pki.New(pki.Config{NoPass: true, SequentialSerial: true, KeyAlgo: pki.AlgoRSA, KeySize: 1024}, ks, cs, idx, sp, crl)
+	mustNoError(t, err)
 
 	caPair, err := p.BuildCA()
 	mustNoError(t, err)

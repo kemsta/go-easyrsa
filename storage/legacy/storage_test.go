@@ -100,8 +100,8 @@ func TestReadOnlyComponentsRejectWrites(t *testing.T) {
 	ks := legacy.NewKeyStorage(dir, "ca")
 	crl := legacy.NewCRLHolder(dir)
 	db := legacy.NewIndexDB(ks, crl)
-	cs := legacy.NewCSRStorage()
-	sp := legacy.NewSerialProvider()
+	cs := legacy.NewCSRStorage(dir)
+	sp := legacy.NewSerialProvider(dir)
 
 	assert.ErrorIs(t, ks.Put(fixture.ClientCurrent), storage.ErrReadOnly)
 	assert.ErrorIs(t, ks.DeleteByName("client1"), storage.ErrReadOnly)

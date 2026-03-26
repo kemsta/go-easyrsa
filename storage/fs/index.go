@@ -31,6 +31,9 @@ func NewIndexDB(pkiDir string) *IndexDB {
 	return &IndexDB{path: fsJoin(pkiDir, "index.txt")}
 }
 
+func (db *IndexDB) Empty() (bool, error) { return OwnershipProbe{Dir: filepath.Dir(db.path)}.Empty() }
+func (db *IndexDB) Owned() (bool, error) { return OwnershipProbe{Dir: filepath.Dir(db.path)}.Owned() }
+
 func (db *IndexDB) Record(entry storage.IndexEntry) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
