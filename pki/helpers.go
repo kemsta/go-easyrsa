@@ -4,6 +4,8 @@ import (
 	"encoding/pem"
 	"errors"
 	"strings"
+
+	"github.com/kemsta/go-easyrsa/storage"
 )
 
 // pemEncodeCert PEM-encodes a DER certificate.
@@ -35,4 +37,9 @@ func validateEntityName(name string) error {
 		return errors.New("pki: entity name must not contain null bytes")
 	}
 	return nil
+}
+
+func isReadOnly(v any) bool {
+	ro, ok := v.(storage.ReadOnly)
+	return ok && ro.ReadOnly()
 }

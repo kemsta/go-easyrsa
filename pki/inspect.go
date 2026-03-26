@@ -124,6 +124,10 @@ func (p *PKI) VerifyCert(name string) error {
 
 // UpdateDB scans issued certificates and marks expired ones as expired in the index.
 func (p *PKI) UpdateDB() error {
+	if isReadOnly(p.index) {
+		return storage.ErrReadOnly
+	}
+
 	validStatus := storage.StatusValid
 	entries, err := p.index.Query(storage.IndexFilter{Status: &validStatus})
 	if err != nil {

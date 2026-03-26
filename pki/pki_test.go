@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kemsta/go-easyrsa/cert"
+	"github.com/kemsta/go-easyrsa/internal/testutil"
 	"github.com/kemsta/go-easyrsa/pki"
 	"github.com/kemsta/go-easyrsa/storage"
 	"github.com/kemsta/go-easyrsa/storage/memory"
@@ -1456,6 +1457,103 @@ func TestConfig_PassphrasesNotLeakedInStringFormatting(t *testing.T) {
 
 	assert.False(t, strings.Contains(formatted, keyPass),
 		"KeyPassphrase %q is visible in %%+v output of Config", keyPass)
+}
+
+// --- Legacy read-only backend ---
+
+func TestNewWithLegacyFSRO_ReadsAndExports(t *testing.T) {
+	dir := t.TempDir()
+	fixture := testutil.WriteLegacyFixture(t, dir)
+
+	p, err := pki.NewWithLegacyFSRO(dir, pki.Config{})
+	require.NoError(t, err)
+
+	caPair, err := p.ShowCA()
+	require.NoError(t, err)
+	assert.Equal(t, "ca", caPair.Name)
+
+	pair, err := p.ShowCert("client1")
+	require.NoError(t, err)
+	serial, err := pair.Serial()
+	require.NoError(t, err)
+	assert.Zero(t, serial.Cmp(testutil.MustSerial(t, fixture.ClientCurrent)))
+
+	crl, err := p.ShowCRL()
+	require.NoError(t, err)
+	assert.NotEmpty(t, crl.RevokedCertificateEntries)
+
+	revoked, err := p.ShowRevoked()
+	require.NoError(t, err)
+	require.Len(t, revoked, 1)
+	revokedSerial, err := revoked[0].Serial()
+	require.NoError(t, err)
+	assert.Zero(t, revokedSerial.Cmp(testutil.MustSerial(t, fixture.RevokedPair)))
+
+	expiring, err := p.ShowExpiring(800)
+	require.NoError(t, err)
+	assert.Len(t, expiring, 2)
+
+	revokedFlag, err := p.IsRevoked(testutil.MustSerial(t, fixture.RevokedPair))
+	require.NoError(t, err)
+	assert.True(t, revokedFlag)
+
+	require.NoError(t, p.VerifyCert("client1"))
+
+	p12, err := p.ExportP12("client1", "bundle-pass")
+	require.NoError(t, err)
+	assert.NotEmpty(t, p12)
+
+	p7, err := p.ExportP7("client1")
+	require.NoError(t, err)
+	assert.NotEmpty(t, p7)
+
+	p8, err := p.ExportP8("client1", "secret")
+	require.NoError(t, err)
+	assert.NotEmpty(t, p8)
+
+	p1, err := p.ExportP1("client1")
+	require.NoError(t, err)
+	assert.NotEmpty(t, p1)
+}
+
+func TestNewWithLegacyFSRO_RejectsWrites(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteLegacyFixture(t, dir)
+
+	p, err := pki.NewWithLegacyFSRO(dir, pki.Config{NoPass: true})
+	require.NoError(t, err)
+
+	_, err = p.BuildCA()
+	assert.ErrorIs(t, err, storage.ErrReadOnly)
+
+	_, err = p.GenReq("new-client")
+	assert.ErrorIs(t, err, storage.ErrReadOnly)
+
+	q := newTestPKI(pki.Config{NoPass: true})
+	buildTestCA(t, q)
+	csrPEM, err := q.GenReq("partner")
+	require.NoError(t, err)
+
+	err = p.ImportReq("new-client", csrPEM)
+	assert.ErrorIs(t, err, storage.ErrReadOnly)
+
+	_, err = p.SignReq("new-client", cert.CertTypeClient)
+	assert.ErrorIs(t, err, storage.ErrReadOnly)
+
+	_, err = p.Renew("client1")
+	assert.ErrorIs(t, err, storage.ErrReadOnly)
+
+	err = p.Revoke("client1", cert.ReasonUnspecified)
+	assert.ErrorIs(t, err, storage.ErrReadOnly)
+
+	_, err = p.GenCRL()
+	assert.ErrorIs(t, err, storage.ErrReadOnly)
+
+	err = p.SetPass("client1", "", "new-pass")
+	assert.ErrorIs(t, err, storage.ErrReadOnly)
+
+	err = p.UpdateDB()
+	assert.ErrorIs(t, err, storage.ErrReadOnly)
 }
 
 // --- CertType ---

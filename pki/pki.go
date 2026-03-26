@@ -6,6 +6,7 @@ import (
 
 	"github.com/kemsta/go-easyrsa/storage"
 	fsstore "github.com/kemsta/go-easyrsa/storage/fs"
+	legacystore "github.com/kemsta/go-easyrsa/storage/legacy"
 )
 
 // PKI orchestrates all certificate operations.
@@ -51,6 +52,22 @@ func NewWithFS(pkiDir string, cfg Config) (*PKI, error) {
 		index:      fsstore.NewIndexDB(pkiDir),
 		serial:     fsstore.NewSerialProvider(pkiDir),
 		crlHolder:  fsstore.NewCRLHolder(pkiDir),
+		config:     cfg,
+	}, nil
+}
+
+// NewWithLegacyFSRO constructs a PKI backed by the legacy v1 filesystem layout
+// in read-only mode.
+func NewWithLegacyFSRO(pkiDir string, cfg Config) (*PKI, error) {
+	cfg = applyConfigDefaults(cfg)
+	ks := legacystore.NewKeyStorage(pkiDir, cfg.CAName)
+	crl := legacystore.NewCRLHolder(pkiDir)
+	return &PKI{
+		storage:    ks,
+		csrStorage: legacystore.NewCSRStorage(),
+		index:      legacystore.NewIndexDB(ks, crl),
+		serial:     legacystore.NewSerialProvider(),
+		crlHolder:  crl,
 		config:     cfg,
 	}, nil
 }
@@ -102,4 +119,3 @@ func (p *PKI) keyPassphrase(o options) (string, error) {
 	}
 	return "", errors.New("pki: key passphrase required; use WithPassphrase() or WithNoPass()")
 }
-
