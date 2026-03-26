@@ -15,7 +15,14 @@ import (
 var (
 	ErrNotFound = errors.New("not found")
 	ErrConflict = errors.New("already exists")
+	ErrReadOnly = errors.New("read-only storage")
 )
+
+// ReadOnly is an optional interface for storage components that explicitly
+// declare themselves read-only.
+type ReadOnly interface {
+	ReadOnly() bool
+}
 
 // CertStatus represents the current state of a certificate in the index.
 type CertStatus string
