@@ -77,7 +77,7 @@ func classifyEKUArgument(opts *cliOptions, nameOrPath string) (certpkg.EKUType, 
 		if readErr != nil {
 			return "", nil, readErr
 		}
-		certificate, parseErr := parseCertificatePEM(data)
+		certificate, parseErr := parseUtilityCertificatePEM(data)
 		if parseErr != nil {
 			return "", nil, parseErr
 		}
@@ -263,7 +263,7 @@ func readAndClose(file *os.File) ([]byte, error) {
 	return data, errors.Join(readErr, file.Close())
 }
 
-func parseCertificatePEM(data []byte) (*x509.Certificate, error) {
+func parseUtilityCertificatePEM(data []byte) (*x509.Certificate, error) {
 	block, _ := pem.Decode(data)
 	if block == nil {
 		return nil, errors.New("go-easyrsa: failed to decode certificate PEM")
@@ -333,14 +333,14 @@ func writeRequestSummary(destination io.Writer, name string, request *x509.Certi
 	if _, err := fmt.Fprintf(destination, "emails=%s\n", strings.Join(request.EmailAddresses, ",")); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(destination, "public-key=%s\n", publicKeySummary(request.PublicKey)); err != nil {
+	if _, err := fmt.Fprintf(destination, "public-key=%s\n", utilityPublicKeySummary(request.PublicKey)); err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(destination, "signature-algorithm=%s\n", request.SignatureAlgorithm)
 	return err
 }
 
-func publicKeySummary(publicKey any) string {
+func utilityPublicKeySummary(publicKey any) string {
 	switch key := publicKey.(type) {
 	case *rsa.PublicKey:
 		return fmt.Sprintf("RSA-%d", key.N.BitLen())
