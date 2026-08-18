@@ -1,6 +1,7 @@
 package pki_test
 
 import (
+	"crypto/elliptic"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -54,6 +55,21 @@ func TestShowReqAcceptsDamagedSignature(t *testing.T) {
 	request, err := got.Request()
 	require.NoError(t, err)
 	assert.Error(t, request.CheckSignature())
+}
+
+func TestGenReqUsesEasyRSADefaultECDSASignatureAlgorithm(t *testing.T) {
+	for _, curve := range []elliptic.Curve{elliptic.P384(), elliptic.P521()} {
+		t.Run(curve.Params().Name, func(t *testing.T) {
+			pk := newTestPKI(pki.Config{NoPass: true, KeyAlgo: pki.AlgoECDSA, Curve: curve})
+			_, err := pk.GenReq("alice")
+			require.NoError(t, err)
+			request, err := pk.ShowReq("alice")
+			require.NoError(t, err)
+			parsed, err := request.Request()
+			require.NoError(t, err)
+			assert.Equal(t, x509.ECDSAWithSHA256, parsed.SignatureAlgorithm)
+		})
+	}
 }
 
 func TestShowReqErrors(t *testing.T) {
