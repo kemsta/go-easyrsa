@@ -5,9 +5,9 @@
 [![GoDoc](https://pkg.go.dev/badge/github.com/kemsta/go-easyrsa/v2.svg)](https://pkg.go.dev/github.com/kemsta/go-easyrsa/v2)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A drop-in replacement for [easy-rsa](https://github.com/OpenVPN/easy-rsa) as a Go library - no shell scripts, no `openssl` subprocess, same PKI directory layout.
+A Go library for [Easy-RSA](https://github.com/OpenVPN/easy-rsa)-compatible PKI operations, without shell scripts or `openssl` subprocesses.
 
-Every `easyrsa` command has a direct Go equivalent:
+The library currently provides typed equivalents for these core operations:
 
 | easy-rsa command | go-easyrsa method |
 |---|---|
@@ -26,18 +26,18 @@ Every `easyrsa` command has a direct Go equivalent:
 | `gen-dh` | `GenDH(bits)` |
 | `show-cert` / `show-ca` | `ShowCert(name)` / `ShowCA()` |
 | `show-crl` | `ShowCRL()` |
-| `show-expired` | `ShowExpiring(days)` |
-| `show-revoked` | `ShowRevoked()` |
+| `show-expire` | `ShowExpiring(days)` |
+| `show-revoke` | `ShowRevoked()` |
 | `verify-cert` | `VerifyCert(name)` |
 | `update-db` | `UpdateDB()` |
-| `expire-cert` | `ExpireCert(name)` |
+| `expire` | `ExpireCert(name)` |
 | `export-p12` | `ExportP12(name, password)` |
 | `export-p7` | `ExportP7(name)` |
 | `export-p8` | `ExportP8(name, password)` |
 | `export-p1` | `ExportP1(name)` |
 | `set-pass` | `SetPass(name, oldPass, newPass)` |
 
-The filesystem backend is a drop-in replacement for easy-rsa and uses the same current PKI layout.
+The filesystem backend follows the current Easy-RSA PKI layout for the operations covered by the interoperability tests.
 
 For legacy v1 filesystem layout support, see [docs/legacy.md](docs/legacy.md).
 
@@ -45,8 +45,8 @@ For legacy v1 filesystem layout support, see [docs/legacy.md](docs/legacy.md).
 
 ## ✨ Features
 
-- **Complete easy-rsa parity** - every shell command available as a typed Go method
-- **Full interoperability** - open an existing easy-rsa/OpenSSL PKI, or create a new one that easy-rsa can read
+- **Core Easy-RSA operations** - typed Go methods for CA, certificate, CRL, inspection, and export workflows
+- **Tested interoperability** - open and create Easy-RSA/OpenSSL PKIs for the currently covered workflows
 - **Key algorithms** - RSA (2048/3072/4096), ECDSA (P-256/P-384/P-521), Ed25519
 - **Key encryption** - AES-256-CBC passphrase protection for private keys
 - **Export formats** - PKCS#12, PKCS#7, PKCS#8, PKCS#1, Diffie-Hellman parameters
@@ -77,8 +77,11 @@ import (
 )
 
 func main() {
+    // Optionally overlay EASYRSA_* environment variables onto a base config.
+    cfg := pki.LoadConfigFromEnv(pki.Config{NoPass: true})
+
     // Create a filesystem-backed PKI (easy-rsa compatible layout)
-    p, err := pki.NewWithFS("/path/to/pki", pki.Config{NoPass: true})
+    p, err := pki.NewWithFS("/path/to/pki", cfg)
     if err != nil {
         log.Fatal(err)
     }
@@ -110,6 +113,40 @@ func main() {
         log.Fatal(err)
     }
 }
+```
+
+---
+
+## 💻 CLI
+
+A Cobra-based `go-easyrsa` CLI is available as a separate module at:
+
+```text
+cmd/go-easyrsa
+```
+
+Build it from that directory:
+
+```bash
+cd cmd/go-easyrsa
+go build
+```
+
+The CLI currently exposes a 28-command core subset. Positive compatibility
+against Easy-RSA v3.2.6 is tracked in `docs/go-easyrsa-cli-parity.md`; the
+cross-implementation E2E suite is still being repaired and is not yet a claim
+of complete CLI parity.
+
+PKCS#12 `friendlyName` customization (`--usefn`, `nofn`,
+`EASYRSA_P12_FR_NAME`) and raw CA password input are not implemented and are
+rejected explicitly. Generic unsupported result-affecting environment controls
+can be ignored during migration with `GO_EASYRSA_STRICT_ENV_PARITY=0`; that
+switch does not enable explicitly unsupported features.
+
+Configuration precedence is:
+
+```text
+flags/args > EASYRSA_* env > base Config > library defaults
 ```
 
 ---
@@ -227,6 +264,38 @@ if err != nil {
 ---
 
 ## ⚙️ Configuration
+
+Library code can explicitly overlay supported `EASYRSA_*` environment variables
+onto a base config:
+
+```go
+cfg := pki.LoadConfigFromEnv(pki.Config{
+    NoPass: true,
+})
+```
+
+Supported config-backed environment variables include:
+
+- `EASYRSA_ALGO`
+- `EASYRSA_KEY_SIZE`
+- `EASYRSA_CURVE`
+- `EASYRSA_CA_EXPIRE`
+- `EASYRSA_CERT_EXPIRE`
+- `EASYRSA_CRL_DAYS`
+- `EASYRSA_PRE_EXPIRY_WINDOW`
+- `EASYRSA_DN`
+- `EASYRSA_REQ_COUNTRY`
+- `EASYRSA_REQ_PROVINCE`
+- `EASYRSA_REQ_CITY`
+- `EASYRSA_REQ_ORG`
+- `EASYRSA_REQ_EMAIL`
+- `EASYRSA_REQ_OU`
+- `EASYRSA_NO_PASS`
+- `EASYRSA_PASSIN`
+- `EASYRSA_RAND_SN`
+
+Then the resulting `Config` is still passed through normal library defaults by
+`New(...)` / `NewWithFS(...)`.
 
 ```go
 pki.Config{

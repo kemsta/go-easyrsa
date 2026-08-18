@@ -1,12 +1,12 @@
 # go-easyrsa Current-Subset Parity Repair Design
 
-**Status:** Approved
+**Status:** Approved; implementation order amended
 
 **Date:** 2026-08-18
 
 ## Purpose
 
-Repair the currently implemented `cmd/go-easyrsa` command subset before updating project dependencies. The repaired CLI must provide positive compatibility with Easy-RSA v3.2.6: every upstream-valid invocation inside the declared subset must also succeed in `go-easyrsa` and produce usable, interoperable results.
+Repair the currently implemented `cmd/go-easyrsa` command subset after the dependency-only baseline commit `7a2e67d`. The repaired CLI must provide positive compatibility with Easy-RSA v3.2.6: every upstream-valid invocation inside the declared subset must also succeed in `go-easyrsa` and produce usable, interoperable results.
 
 Exact rejection behavior is not a goal. `go-easyrsa` may accept additional forms, such as Cobra's `--flag value`, provided that every upstream form also works.
 
@@ -64,7 +64,7 @@ This phase does not add the 16 upstream command names that are currently absent:
 
 Flags and environment variables already marked unsupported or intentionally out of scope remain excluded, including `rawca`, `text`, `nofn`, friendly-name customization, digest selection, critical-extension controls, Netscape extensions, and operational shell/OpenSSL controls.
 
-Dependency and GitHub Actions version updates remain a later commit. A new direct dependency required to implement a parity fix may be introduced in the parity commit, but it must be used by production code and documented.
+Dependency manifests and GitHub Actions version pins were updated first in `7a2e67d`. A new direct dependency required to implement a parity fix may be introduced in a later parity commit, but it must be used by production code and documented.
 
 ## Compatibility Contract
 
@@ -196,15 +196,13 @@ The E2E job must check out the Easy-RSA submodule and run on an environment with
 
 ## Commit Boundary
 
-The CLI repair is a separate logical implementation commit before dependency updates:
+The dependency-only commit precedes CLI source and E2E work:
 
 ```text
-fix: restore go-easyrsa current-subset parity
+7a2e67d build: update project dependencies
 ```
 
-It contains the trustworthy E2E harness, focused regression tests, required product fixes, CI activation for the nested module, and corrected parity documentation.
-
-The later dependency update commit may change versions and extend checks to all modules, but it must not absorb pre-existing CLI parity repairs.
+The CLI baseline, trustworthy E2E harness, product fixes, CI activation, and corrected parity documentation may be split into multiple focused follow-up commits. Dependency version changes must not be repeated or mixed into those commits unless a new direct production dependency is required by a parity fix.
 
 ## Acceptance Criteria
 
@@ -217,4 +215,4 @@ The later dependency update commit may change versions and extend checks to all 
 - Every one of the 28 registered command names is exercised by at least one canonical upstream-valid scenario.
 - The support matrix distinguishes verified current-subset support from explicitly deferred upstream surface.
 - The Easy-RSA submodule remains pinned to the verified v3.2.6 commit.
-- The subsequent dependency update leaves the complete parity suite green.
+- The dependency update remains isolated in `7a2e67d`, and the repaired parity suite is green on top of it.
