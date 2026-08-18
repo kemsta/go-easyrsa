@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"encoding/pem"
 	"net"
 	"testing"
 	"time"
@@ -133,6 +134,56 @@ func TestSignReq_CertModifierCanSetRawSubject(t *testing.T) {
 	certificate, err := pair.Certificate()
 	require.NoError(t, err)
 	assert.Equal(t, "raw-cn", certificate.Subject.CommonName)
+}
+
+func TestBuildCA_AppliesSANOptions(t *testing.T) {
+	p := newTestPKI(pki.Config{NoPass: true})
+
+	pair, err := p.BuildCA(
+		pki.WithDNSNames("ca.example.test"),
+		pki.WithIPAddresses(net.ParseIP("127.0.0.1")),
+		pki.WithEmailAddresses("ca@example.test"),
+	)
+	require.NoError(t, err)
+	certificate, err := pair.Certificate()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"ca.example.test"}, certificate.DNSNames)
+	require.Len(t, certificate.IPAddresses, 1)
+	assert.Equal(t, "127.0.0.1", certificate.IPAddresses[0].String())
+	assert.Equal(t, []string{"ca@example.test"}, certificate.EmailAddresses)
+}
+
+func TestCertificateOnlySANIsOmittedFromCSRAndAppliedOnSign(t *testing.T) {
+	p := newTestPKI(pki.Config{NoPass: true})
+	buildTestCA(t, p)
+	certificateIP := net.ParseIP("127.0.0.9")
+	csrPEM, err := p.GenReq("client1",
+		pki.WithNoPass(),
+		pki.WithCertificateDNSNames("client.example.test"),
+		pki.WithCertificateIPAddresses(certificateIP),
+		pki.WithCertificateEmailAddresses("client@example.test"),
+	)
+	require.NoError(t, err)
+	block, _ := pem.Decode(csrPEM)
+	require.NotNil(t, block)
+	request, err := x509.ParseCertificateRequest(block.Bytes)
+	require.NoError(t, err)
+	assert.Empty(t, request.DNSNames)
+	assert.Empty(t, request.IPAddresses)
+	assert.Empty(t, request.EmailAddresses)
+
+	pair, err := p.SignReq("client1", cert.CertTypeClient,
+		pki.WithCertificateDNSNames("client.example.test"),
+		pki.WithCertificateIPAddresses(certificateIP),
+		pki.WithCertificateEmailAddresses("client@example.test"),
+	)
+	require.NoError(t, err)
+	certificate, err := pair.Certificate()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"client.example.test"}, certificate.DNSNames)
+	require.Len(t, certificate.IPAddresses, 1)
+	assert.Equal(t, "127.0.0.9", certificate.IPAddresses[0].String())
+	assert.Equal(t, []string{"client@example.test"}, certificate.EmailAddresses)
 }
 
 func TestBuildCA_AppliesSubCAPathLenOption(t *testing.T) {

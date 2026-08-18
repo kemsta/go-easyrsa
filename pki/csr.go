@@ -210,6 +210,15 @@ func (p *PKI) SignReq(name string, certType cert.CertType, opts ...Option) (*cer
 	if len(o.emailAddrs) > 0 {
 		template.EmailAddresses = o.emailAddrs
 	}
+	if len(o.certificateDNSNames) > 0 {
+		template.DNSNames = o.certificateDNSNames
+	}
+	if len(o.certificateIPs) > 0 {
+		template.IPAddresses = o.certificateIPs
+	}
+	if len(o.certificateEmails) > 0 {
+		template.EmailAddresses = o.certificateEmails
+	}
 
 	subjectBeforeModifiers := cloneName(template.Subject)
 	rawSubjectBeforeModifiers := append([]byte(nil), template.RawSubject...)

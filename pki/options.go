@@ -34,6 +34,11 @@ type options struct {
 	ipAddresses []net.IP
 	emailAddrs  []string
 
+	// Certificate-only SANs are applied by SignReq but omitted from generated CSRs.
+	certificateDNSNames []string
+	certificateIPs      []net.IP
+	certificateEmails   []string
+
 	// CSR signing behaviour (used by SignReq)
 	copyCSRExtensions bool       // copy extensions from CSR (e.g. SANs)
 	subjectOverride   *pkix.Name // replace subject DN when signing
@@ -119,6 +124,23 @@ func WithIPAddresses(ips ...net.IP) Option {
 // WithEmailAddresses adds email SANs.
 func WithEmailAddresses(addrs ...string) Option {
 	return func(o *options) { o.emailAddrs = append(o.emailAddrs, addrs...) }
+}
+
+// WithCertificateDNSNames adds DNS SANs only when SignReq issues a certificate.
+// It is ignored by request/key generation and overrides copied/ordinary DNS
+// SANs during signing.
+func WithCertificateDNSNames(names ...string) Option {
+	return func(o *options) { o.certificateDNSNames = append(o.certificateDNSNames, names...) }
+}
+
+// WithCertificateIPAddresses adds IP SANs only when SignReq issues a certificate.
+func WithCertificateIPAddresses(ips ...net.IP) Option {
+	return func(o *options) { o.certificateIPs = append(o.certificateIPs, ips...) }
+}
+
+// WithCertificateEmailAddresses adds email SANs only when SignReq issues a certificate.
+func WithCertificateEmailAddresses(addrs ...string) Option {
+	return func(o *options) { o.certificateEmails = append(o.certificateEmails, addrs...) }
 }
 
 // WithCopyCSRExtensions copies extensions from the CSR when signing (including SANs).

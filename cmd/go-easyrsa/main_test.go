@@ -99,6 +99,25 @@ func TestCLI_BuildCAUsesEasyRSADefaultCN(t *testing.T) {
 	require.Equal(t, "Easy-RSA CA", certificate.Subject.CommonName)
 }
 
+func TestCLI_RenewCAAppliesExplicitSANEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	out, err := runCLI(t, "--pki-dir", dir, "--nopass", "build-ca")
+	require.NoError(t, err, out)
+	t.Setenv("EASYRSA_SAN", "DNS:renewed-ca.example.test,IP:127.0.0.8,EMAIL:ca@example.test")
+
+	out, err = runCLI(t, "--pki-dir", dir, "renew-ca")
+	require.NoError(t, err, out)
+	pk := openFS(t, dir, pki.Config{NoPass: true})
+	pair, err := pk.ShowCA()
+	require.NoError(t, err)
+	certificate, err := pair.Certificate()
+	require.NoError(t, err)
+	require.Equal(t, []string{"renewed-ca.example.test"}, certificate.DNSNames)
+	require.Len(t, certificate.IPAddresses, 1)
+	require.Equal(t, "127.0.0.8", certificate.IPAddresses[0].String())
+	require.Equal(t, []string{"ca@example.test"}, certificate.EmailAddresses)
+}
+
 func TestCLI_BuildCADefaultCNSentinelAndOverrides(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -696,6 +715,13 @@ func TestCLI_UsesEnvReqCNAndAutoSAN(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "env.example.test", crt.Subject.CommonName)
 	require.Equal(t, []string{"env.example.test"}, crt.DNSNames)
+	requestPEM, err := os.ReadFile(filepath.Join(dir, "reqs", "vpn.req"))
+	require.NoError(t, err)
+	requestBlock, _ := pem.Decode(requestPEM)
+	require.NotNil(t, requestBlock)
+	request, err := x509.ParseCertificateRequest(requestBlock.Bytes)
+	require.NoError(t, err)
+	require.Empty(t, request.DNSNames)
 }
 
 func TestCLI_EnvReqSerialIsIgnoredInCNOnlyMode(t *testing.T) {
@@ -828,6 +854,14 @@ func TestCLI_UsesEnvSANOnBuildServerFull(t *testing.T) {
 	require.NoError(t, err, out)
 
 	pk := openFS(t, dir, pki.Config{NoPass: true})
+	caPair, err := pk.ShowCA()
+	require.NoError(t, err)
+	caCertificate, err := caPair.Certificate()
+	require.NoError(t, err)
+	require.Equal(t, []string{"env.example.test"}, caCertificate.DNSNames)
+	require.Len(t, caCertificate.IPAddresses, 1)
+	require.Equal(t, "127.0.0.1", caCertificate.IPAddresses[0].String())
+	require.Equal(t, []string{"ops@example.test"}, caCertificate.EmailAddresses)
 	pair, err := pk.ShowCert("vpn")
 	require.NoError(t, err)
 	crt, err := pair.Certificate()
@@ -897,6 +931,11 @@ func TestCLI_UsesEnvStartDateEndDate(t *testing.T) {
 	require.NoError(t, err, out)
 
 	pk := openFS(t, dir, pki.Config{NoPass: true})
+	caPair, err := pk.ShowCA()
+	require.NoError(t, err)
+	caCertificate, err := caPair.Certificate()
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, int(caCertificate.NotAfter.Sub(caCertificate.NotBefore).Hours()/24), 3649)
 	pair, err := pk.ShowCert("alice")
 	require.NoError(t, err)
 	crt, err := pair.Certificate()

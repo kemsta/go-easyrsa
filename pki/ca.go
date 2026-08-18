@@ -7,6 +7,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"math/big"
+	"net"
 	"time"
 
 	"github.com/kemsta/go-easyrsa/v2/cert"
@@ -86,6 +87,9 @@ func (p *PKI) BuildCA(opts ...Option) (*cert.Pair, error) {
 		MaxPathLen:            pathLen,
 		MaxPathLenZero:        pathLen == 0,
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
+		DNSNames:              append([]string(nil), o.dnsNames...),
+		IPAddresses:           append([]net.IP(nil), o.ipAddresses...),
+		EmailAddresses:        append([]string(nil), o.emailAddrs...),
 		SubjectKeyId:          skid,
 		AuthorityKeyId:        skid,
 	}
@@ -181,6 +185,9 @@ func (p *PKI) RenewCA(opts ...Option) (*cert.Pair, error) {
 		IsCA:                  true,
 		BasicConstraintsValid: true,
 		KeyUsage:              oldCert.KeyUsage,
+		DNSNames:              append([]string(nil), o.dnsNames...),
+		IPAddresses:           append([]net.IP(nil), o.ipAddresses...),
+		EmailAddresses:        append([]string(nil), o.emailAddrs...),
 		SubjectKeyId:          oldCert.SubjectKeyId,
 		AuthorityKeyId:        oldCert.SubjectKeyId,
 	}

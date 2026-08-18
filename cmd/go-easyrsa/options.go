@@ -20,15 +20,17 @@ func buildCommonOptions(opts *cliOptions, cfg pki.Config, name string, scope com
 		return nil, err
 	}
 
-	notBefore, notAfter, err := resolveValidity(opts)
-	if err != nil {
-		return nil, err
-	}
-	if !notBefore.IsZero() {
-		out = append(out, pki.WithNotBefore(notBefore))
-	}
-	if !notAfter.IsZero() {
-		out = append(out, pki.WithNotAfter(notAfter))
+	if scope != commandScopeCA {
+		notBefore, notAfter, err := resolveValidity(opts)
+		if err != nil {
+			return nil, err
+		}
+		if !notBefore.IsZero() {
+			out = append(out, pki.WithNotBefore(notBefore))
+		}
+		if !notAfter.IsZero() {
+			out = append(out, pki.WithNotAfter(notAfter))
+		}
 	}
 
 	if opts.noPass || cmdOpts["nopass"] {
@@ -71,19 +73,33 @@ func buildCommonOptions(opts *cliOptions, cfg pki.Config, name string, scope com
 		}
 	}
 
-	if scope == commandScopeCSR || scope == commandScopeSign || scope == commandScopeBuildFull {
+	explicitSANs := explicitSANEntries(opts)
+	if scope == commandScopeCSR || scope == commandScopeSign || scope == commandScopeBuildFull || (scope == commandScopeCA && len(explicitSANs) > 0) {
 		dnsNames, ips, emails, err := resolveSANs(opts, name)
 		if err != nil {
 			return nil, err
 		}
-		if len(dnsNames) > 0 {
-			out = append(out, pki.WithDNSNames(dnsNames...))
-		}
-		if len(ips) > 0 {
-			out = append(out, pki.WithIPAddresses(ips...))
-		}
-		if len(emails) > 0 {
-			out = append(out, pki.WithEmailAddresses(emails...))
+		certificateOnly := len(explicitSANs) == 0 && opts.autoSAN
+		if certificateOnly {
+			if len(dnsNames) > 0 {
+				out = append(out, pki.WithCertificateDNSNames(dnsNames...))
+			}
+			if len(ips) > 0 {
+				out = append(out, pki.WithCertificateIPAddresses(ips...))
+			}
+			if len(emails) > 0 {
+				out = append(out, pki.WithCertificateEmailAddresses(emails...))
+			}
+		} else {
+			if len(dnsNames) > 0 {
+				out = append(out, pki.WithDNSNames(dnsNames...))
+			}
+			if len(ips) > 0 {
+				out = append(out, pki.WithIPAddresses(ips...))
+			}
+			if len(emails) > 0 {
+				out = append(out, pki.WithEmailAddresses(emails...))
+			}
 		}
 	}
 
@@ -151,12 +167,7 @@ func subjectFromCLI(opts *cliOptions) (pkix.Name, bool) {
 }
 
 func resolveSANs(opts *cliOptions, name string) ([]string, []net.IP, []string, error) {
-	var entries []string
-	if envSAN := strings.TrimSpace(os.Getenv("EASYRSA_SAN")); envSAN != "" {
-		entries = append(entries, envSAN)
-	}
-	entries = append(entries, opts.sans...)
-	entries = append(entries, opts.subjectAltNames...)
+	entries := explicitSANEntries(opts)
 	if len(entries) == 0 && opts.autoSAN {
 		cn := strings.TrimSpace(opts.reqCN)
 		if cn == "" {
@@ -169,6 +180,16 @@ func resolveSANs(opts *cliOptions, name string) ([]string, []net.IP, []string, e
 		}
 	}
 	return parseSANEntries(entries)
+}
+
+func explicitSANEntries(opts *cliOptions) []string {
+	var entries []string
+	if envSAN := strings.TrimSpace(os.Getenv("EASYRSA_SAN")); envSAN != "" {
+		entries = append(entries, envSAN)
+	}
+	entries = append(entries, opts.sans...)
+	entries = append(entries, opts.subjectAltNames...)
+	return entries
 }
 
 func optionalArg(args []string, idx int) string {
