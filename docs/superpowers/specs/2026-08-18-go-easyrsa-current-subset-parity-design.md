@@ -1,6 +1,6 @@
 # go-easyrsa Current-Subset Parity Repair Design
 
-**Status:** Approved; implementation order amended
+**Status:** Implemented
 
 **Date:** 2026-08-18
 

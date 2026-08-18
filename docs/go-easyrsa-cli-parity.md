@@ -21,46 +21,47 @@ canonical `--flag=value` form and place global options before the command.
 - ❌ intentionally unsupported in the current subset
 - ⛔ outside the current result-compatibility scope
 
-The tagged CLI E2E suite is currently being repaired. Therefore this document
-does not mark the command subset as complete or drop-in compatible yet.
+The tagged CLI E2E suite passes against the pinned Easy-RSA v3.2.6 reference
+and is required by CI. This verifies the declared subset; it is not a claim
+that the 16 deferred commands or explicitly unsupported controls are drop-in
+compatible.
 
 ## Current command subset
 
-These 28 registered command names are in scope. Registration and ordinary
-coverage are present for the baseline, but command-by-command ordinary coverage
-is still partial; each remains 🟡 until its canonical upstream scenario is
-green.
+These 28 registered command names are in scope. Every name is exercised by at
+least one canonical upstream-valid E2E scenario, in addition to focused
+ordinary tests.
 
 | Command | Status |
 |---|---:|
-| `init-pki` | 🟡 |
-| `build-ca` | 🟡 |
-| `renew-ca` | 🟡 |
-| `gen-req` | 🟡 |
-| `import-req` | 🟡 |
-| `sign-req` | 🟡 |
-| `build-client-full` | 🟡 |
-| `build-server-full` | 🟡 |
-| `build-serverClient-full` | 🟡 |
-| `expire` | 🟡 |
-| `renew` | 🟡 |
-| `revoke` | 🟡 |
-| `revoke-issued` | 🟡 |
-| `revoke-expired` | 🟡 |
-| `gen-crl` | 🟡 |
-| `show-cert` | 🟡 |
-| `show-ca` | 🟡 |
-| `show-crl` | 🟡 |
-| `show-expire` | 🟡 |
-| `show-revoke` | 🟡 |
-| `verify-cert` | 🟡 |
-| `export-p12` | 🟡 |
-| `export-p7` | 🟡 |
-| `export-p8` | 🟡 |
-| `export-p1` | 🟡 |
-| `gen-dh` | 🟡 |
-| `update-db` | 🟡 |
-| `set-pass` | 🟡 |
+| `init-pki` | ✅ |
+| `build-ca` | ✅ |
+| `renew-ca` | ✅ |
+| `gen-req` | ✅ |
+| `import-req` | ✅ |
+| `sign-req` | ✅ |
+| `build-client-full` | ✅ |
+| `build-server-full` | ✅ |
+| `build-serverClient-full` | ✅ |
+| `expire` | ✅ |
+| `renew` | ✅ |
+| `revoke` | ✅ |
+| `revoke-issued` | ✅ |
+| `revoke-expired` | ✅ |
+| `gen-crl` | ✅ |
+| `show-cert` | ✅ |
+| `show-ca` | ✅ |
+| `show-crl` | ✅ |
+| `show-expire` | ✅ |
+| `show-revoke` | ✅ |
+| `verify-cert` | ✅ |
+| `export-p12` | ✅ |
+| `export-p7` | ✅ |
+| `export-p8` | ✅ |
+| `export-p1` | ✅ |
+| `gen-dh` | ✅ |
+| `update-db` | ✅ |
+| `set-pass` | ✅ |
 
 ## Deferred upstream commands
 
@@ -79,7 +80,7 @@ These 16 upstream command names are not registered in the current phase:
 
 ## Flags and positional controls
 
-### Implemented, parity pending
+### Implemented in the verified subset
 
 - PKI and validity: `--pki-dir`, `--days`, `--startdate`, `--enddate`
 - key generation: `--algo`, `--keysize`, `--curve`
@@ -118,8 +119,8 @@ escape hatch does not enable explicitly unsupported command options.
 
 ## Result-affecting environment variables
 
-The following variables are implemented in the current baseline but remain 🟡
-until their upstream scenarios pass:
+The following variables are implemented and exercised by the current contract
+and parity suites:
 
 - location and crypto: `EASYRSA_PKI`, `EASYRSA_ALGO`, `EASYRSA_CURVE`,
   `EASYRSA_KEY_SIZE`
@@ -177,17 +178,21 @@ its safer behavior of marking superseded renewal entries non-valid; semantic
 parity treats that old-history status as an intentional internal difference
 while requiring the current certificate and command continuation to match.
 
-## Known E2E repair areas
+## E2E contract
 
-The current failures are being separated into harness defects and product
-defects. Work still required includes:
+The suite:
 
-- identical canonical argv for both implementations;
-- artifact verification at upstream PKI paths rather than stdout substitution;
-- semantic comparison of entity identity, status, serial strategy, and time;
-- cross-implementation verification of encrypted PKCS#8 and passphrase flows;
-- cross-implementation verification of P1, P7, P8, P12, DH, and CRL composition;
-- representative continuation of each implementation's PKI by the other.
+- passes identical canonical argv to both implementations;
+- sanitizes inherited Easy-RSA environment variables;
+- keeps stdout, stderr, exit status, and artifacts separate;
+- requires upstream artifact paths rather than substituting stdout;
+- compares stable CA/certificate, CSR, index, CRL identity/reason, key, SAN,
+  validity, and export semantics while normalizing random serials, clock
+  offsets, and documented renewal bookkeeping;
+- decrypts exported keys, verifies key/certificate linkage, and checks legacy
+  PKCS#12 algorithms;
+- verifies representative mixed-producer continuation in both directions;
+- fails if the pinned Easy-RSA reference is missing.
 
-A row moves to ✅ only after the corresponding upstream-valid scenario passes
-without an expected-failure list or skipped known failure.
+The declared 28-command positive-compatibility subset has no skipped or
+expected E2E failures.

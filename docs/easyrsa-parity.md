@@ -3,9 +3,11 @@
 This document tracks the correspondence between easy-rsa commands and go-easyrsa library methods.
 
 The repository also contains a Cobra-based `go-easyrsa` CLI in
-`cmd/go-easyrsa`, implemented on top of these methods. Its positive-
-compatibility E2E suite against Easy-RSA v3.2.6 is under active repair; the
-current CLI subset must not yet be described as complete parity.
+`cmd/go-easyrsa`, implemented on top of these methods. Its 28-command
+positive-compatibility subset is verified by E2E against the pinned Easy-RSA
+v3.2.6 reference. The
+remaining upstream command surface is explicitly deferred rather than claimed
+as complete parity.
 
 For command/flag/env parity tracking of the CLI itself, see
 [`docs/go-easyrsa-cli-parity.md`](go-easyrsa-cli-parity.md).

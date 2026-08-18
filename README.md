@@ -132,10 +132,10 @@ cd cmd/go-easyrsa
 go build
 ```
 
-The CLI currently exposes a 28-command core subset. Positive compatibility
-against Easy-RSA v3.2.6 is tracked in `docs/go-easyrsa-cli-parity.md`; the
-cross-implementation E2E suite is still being repaired and is not yet a claim
-of complete CLI parity.
+The CLI exposes a 28-command core subset whose positive compatibility is
+verified against the pinned Easy-RSA v3.2.6 reference in CI. See
+`docs/go-easyrsa-cli-parity.md` for the verified surface and the 16 deferred
+upstream commands; this is not a claim of complete upstream CLI parity.
 
 PKCS#12 `friendlyName` customization (`--usefn`, `nofn`,
 `EASYRSA_P12_FR_NAME`) and raw CA password input are not implemented and are
