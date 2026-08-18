@@ -8,62 +8,113 @@ jobs:
     name: Test
     strategy:
       matrix:
-        go-version: ["1.25.x", "1.26.x"]
+        go-version: ["1.25.13", "1.26.6"]
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version: ${{ matrix.go-version }}
-      - run: go test ./...
+      - name: Test root module
+        run: go test -count=1 ./...
+      - name: Test go-easyrsa CLI
+        working-directory: cmd/go-easyrsa
+        run: go test -count=1 ./...
+      - name: Test legacy CLI
+        working-directory: cmd/go-easyrsa-legacy-cli
+        run: go test -count=1 ./...
+      - name: Test migration CLI
+        working-directory: cmd/go-easyrsa-migrate
+        run: go test -count=1 ./...
 
   vet:
     name: Vet
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
-          go-version: "1.26.x"
-      - run: go vet ./...
+          go-version: "1.26.6"
+      - name: Vet root module
+        run: go vet ./...
+      - name: Vet go-easyrsa CLI
+        working-directory: cmd/go-easyrsa
+        run: go vet ./...
+      - name: Vet legacy CLI
+        working-directory: cmd/go-easyrsa-legacy-cli
+        run: go vet ./...
+      - name: Vet migration CLI
+        working-directory: cmd/go-easyrsa-migrate
+        run: go vet ./...
+
+  vulnerability:
+    name: Vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: "1.26.6"
+      - name: Scan root module
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+      - name: Scan go-easyrsa CLI
+        working-directory: cmd/go-easyrsa
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+      - name: Scan legacy CLI
+        working-directory: cmd/go-easyrsa-legacy-cli
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+      - name: Scan migration CLI
+        working-directory: cmd/go-easyrsa-migrate
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
-          go-version: "1.26.x"
-      - uses: golangci/golangci-lint-action@v7
+          go-version: "1.26.6"
+      - uses: golangci/golangci-lint-action@v9.3.0
         with:
-          version: v2.11.3
+          version: v2.12.2
 
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
-          go-version: "1.26.x"
+          go-version: "1.26.6"
       - run: go test ./... -covermode=count -coverprofile=coverage.out
       - name: Convert coverage to lcov
-        uses: jandelgado/gcov2lcov-action@v1
-      - uses: coverallsapp/github-action@v2
+        uses: jandelgado/gcov2lcov-action@v1.2.0
+      - uses: coverallsapp/github-action@v2.3.8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path-to-lcov: coverage.lcov
 
   e2e:
-    name: E2E
+    name: E2E (Go ${{ matrix.go-version }})
+    strategy:
+      matrix:
+        go-version: ["1.25.13", "1.26.6"]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7.0.0
         with:
-          go-version: "1.26.x"
-      - run: go test -tags=e2e -timeout=10m ./tests/e2e/...
+          go-version: ${{ matrix.go-version }}
+      - name: Verify Easy-RSA reference
+        run: |
+          test "$(git -C subprojects/easy-rsa rev-parse HEAD)" = "0d746eec3f06210ae1710d17b9c8d38428058e19"
+          openssl version
+      - name: Test library E2E
+        run: go test -tags=e2e -count=1 -timeout=10m ./tests/e2e/...
+      - name: Test go-easyrsa CLI E2E
+        working-directory: cmd/go-easyrsa
+        run: go test -tags=e2e -count=1 -timeout=10m ./...

@@ -1,6 +1,6 @@
 module github.com/kemsta/go-easyrsa/cmd/go-easyrsa-migrate
 
-go 1.25.0
+go 1.25.13
 
 require (
 	github.com/kemsta/go-easyrsa/v2 v2.1.0
@@ -10,7 +10,7 @@ require (
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
-	go.mozilla.org/pkcs7 v0.9.0 // indirect
-	golang.org/x/crypto v0.49.0 // indirect
-	software.sslmate.com/src/go-pkcs12 v0.7.0 // indirect
+	go.mozilla.org/pkcs7 v0.10.0 // indirect
+	golang.org/x/crypto v0.55.0 // indirect
+	software.sslmate.com/src/go-pkcs12 v0.7.3 // indirect
 )

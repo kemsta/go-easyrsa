@@ -5,6 +5,8 @@ import (
 	"crypto/elliptic"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
+	"encoding/pem"
 	"net"
 	"testing"
 	"time"
@@ -95,6 +97,95 @@ func TestSignReq_AppliesCopyCSRExtensionsAndSubjectOverride(t *testing.T) {
 	assert.Equal(t, []string{"csr@example.com"}, crt.EmailAddresses)
 }
 
+func TestSignReq_CertModifierCanChangeSubject(t *testing.T) {
+	p := newTestPKI(pki.Config{NoPass: true})
+	buildTestCA(t, p)
+	_, err := p.GenReq("client1", pki.WithNoPass())
+	require.NoError(t, err)
+
+	pair, err := p.SignReq("client1", cert.CertTypeClient,
+		pki.WithCertModifier(func(c *x509.Certificate) {
+			c.Subject.CommonName = "modified-cn"
+		}),
+	)
+	require.NoError(t, err)
+	certificate, err := pair.Certificate()
+	require.NoError(t, err)
+	assert.Equal(t, "modified-cn", certificate.Subject.CommonName)
+}
+
+func TestSignReq_CertModifierCanSetRawSubject(t *testing.T) {
+	p := newTestPKI(pki.Config{NoPass: true})
+	buildTestCA(t, p)
+	_, err := p.GenReq("client1", pki.WithNoPass())
+	require.NoError(t, err)
+	rawSubject, err := asn1.Marshal(pkix.RDNSequence{
+		{{Type: asn1.ObjectIdentifier{2, 5, 4, 3}, Value: "raw-cn"}},
+	})
+	require.NoError(t, err)
+
+	pair, err := p.SignReq("client1", cert.CertTypeClient,
+		pki.WithCertModifier(func(c *x509.Certificate) {
+			c.Subject.CommonName = "structured-cn"
+			c.RawSubject = rawSubject
+		}),
+	)
+	require.NoError(t, err)
+	certificate, err := pair.Certificate()
+	require.NoError(t, err)
+	assert.Equal(t, "raw-cn", certificate.Subject.CommonName)
+}
+
+func TestBuildCA_AppliesSANOptions(t *testing.T) {
+	p := newTestPKI(pki.Config{NoPass: true})
+
+	pair, err := p.BuildCA(
+		pki.WithDNSNames("ca.example.test"),
+		pki.WithIPAddresses(net.ParseIP("127.0.0.1")),
+		pki.WithEmailAddresses("ca@example.test"),
+	)
+	require.NoError(t, err)
+	certificate, err := pair.Certificate()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"ca.example.test"}, certificate.DNSNames)
+	require.Len(t, certificate.IPAddresses, 1)
+	assert.Equal(t, "127.0.0.1", certificate.IPAddresses[0].String())
+	assert.Equal(t, []string{"ca@example.test"}, certificate.EmailAddresses)
+}
+
+func TestCertificateOnlySANIsOmittedFromCSRAndAppliedOnSign(t *testing.T) {
+	p := newTestPKI(pki.Config{NoPass: true})
+	buildTestCA(t, p)
+	certificateIP := net.ParseIP("127.0.0.9")
+	csrPEM, err := p.GenReq("client1",
+		pki.WithNoPass(),
+		pki.WithCertificateDNSNames("client.example.test"),
+		pki.WithCertificateIPAddresses(certificateIP),
+		pki.WithCertificateEmailAddresses("client@example.test"),
+	)
+	require.NoError(t, err)
+	block, _ := pem.Decode(csrPEM)
+	require.NotNil(t, block)
+	request, err := x509.ParseCertificateRequest(block.Bytes)
+	require.NoError(t, err)
+	assert.Empty(t, request.DNSNames)
+	assert.Empty(t, request.IPAddresses)
+	assert.Empty(t, request.EmailAddresses)
+
+	pair, err := p.SignReq("client1", cert.CertTypeClient,
+		pki.WithCertificateDNSNames("client.example.test"),
+		pki.WithCertificateIPAddresses(certificateIP),
+		pki.WithCertificateEmailAddresses("client@example.test"),
+	)
+	require.NoError(t, err)
+	certificate, err := pair.Certificate()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"client.example.test"}, certificate.DNSNames)
+	require.Len(t, certificate.IPAddresses, 1)
+	assert.Equal(t, "127.0.0.9", certificate.IPAddresses[0].String())
+	assert.Equal(t, []string{"client@example.test"}, certificate.EmailAddresses)
+}
+
 func TestBuildCA_AppliesSubCAPathLenOption(t *testing.T) {
 	p := newTestPKI(pki.Config{NoPass: true})
 
@@ -104,6 +195,39 @@ func TestBuildCA_AppliesSubCAPathLenOption(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, crt.MaxPathLenZero)
 	assert.Zero(t, crt.MaxPathLen)
+}
+
+func TestValidityDaysAreExactAcrossDST(t *testing.T) {
+	location, err := time.LoadLocation("Europe/Berlin")
+	require.NoError(t, err)
+	start := time.Date(2026, time.August, 18, 12, 0, 0, 0, location)
+	const days = 100
+	p := newTestPKI(pki.Config{NoPass: true, CADays: days, DefaultDays: days})
+
+	caPair, err := p.BuildCA(pki.WithNoPass(), pki.WithNotBefore(start))
+	require.NoError(t, err)
+	caCertificate, err := caPair.Certificate()
+	require.NoError(t, err)
+	assert.Equal(t, time.Duration(days)*24*time.Hour, caCertificate.NotAfter.Sub(caCertificate.NotBefore))
+
+	clientPair, err := p.BuildClientFull("client1", pki.WithNoPass(), pki.WithNotBefore(start))
+	require.NoError(t, err)
+	clientCertificate, err := clientPair.Certificate()
+	require.NoError(t, err)
+	assert.Equal(t, time.Duration(days)*24*time.Hour, clientCertificate.NotAfter.Sub(clientCertificate.NotBefore))
+}
+
+func TestValidityDaysDoNotOverflowDuration(t *testing.T) {
+	const days = 106_752
+	start := time.Date(2026, time.August, 18, 12, 0, 0, 0, time.UTC)
+	p := newTestPKI(pki.Config{NoPass: true, CADays: days})
+
+	pair, err := p.BuildCA(pki.WithNoPass(), pki.WithNotBefore(start))
+	require.NoError(t, err)
+	certificate, err := pair.Certificate()
+	require.NoError(t, err)
+	assert.Equal(t, start.AddDate(0, 0, days), certificate.NotAfter)
+	assert.True(t, certificate.NotAfter.After(start))
 }
 
 func TestBuildClientFull_PassphraseAndNoPassOverrides(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"math/big"
+	"net"
 	"time"
 
 	"github.com/kemsta/go-easyrsa/v2/cert"
@@ -56,7 +57,7 @@ func (p *PKI) BuildCA(opts ...Option) (*cert.Pair, error) {
 	if !o.notBefore.IsZero() {
 		notBefore = o.notBefore
 	}
-	notAfter := notBefore.AddDate(0, 0, p.config.CADays)
+	notAfter := addExactDays(notBefore, p.config.CADays)
 	if !o.notAfter.IsZero() {
 		notAfter = o.notAfter
 	}
@@ -86,6 +87,9 @@ func (p *PKI) BuildCA(opts ...Option) (*cert.Pair, error) {
 		MaxPathLen:            pathLen,
 		MaxPathLenZero:        pathLen == 0,
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
+		DNSNames:              append([]string(nil), o.dnsNames...),
+		IPAddresses:           append([]net.IP(nil), o.ipAddresses...),
+		EmailAddresses:        append([]string(nil), o.emailAddrs...),
 		SubjectKeyId:          skid,
 		AuthorityKeyId:        skid,
 	}
@@ -163,7 +167,7 @@ func (p *PKI) RenewCA(opts ...Option) (*cert.Pair, error) {
 	if !o.notBefore.IsZero() {
 		notBefore = o.notBefore
 	}
-	notAfter := notBefore.AddDate(0, 0, p.config.CADays)
+	notAfter := addExactDays(notBefore, p.config.CADays)
 	if !o.notAfter.IsZero() {
 		notAfter = o.notAfter
 	}
@@ -181,6 +185,9 @@ func (p *PKI) RenewCA(opts ...Option) (*cert.Pair, error) {
 		IsCA:                  true,
 		BasicConstraintsValid: true,
 		KeyUsage:              oldCert.KeyUsage,
+		DNSNames:              append([]string(nil), o.dnsNames...),
+		IPAddresses:           append([]net.IP(nil), o.ipAddresses...),
+		EmailAddresses:        append([]string(nil), o.emailAddrs...),
 		SubjectKeyId:          oldCert.SubjectKeyId,
 		AuthorityKeyId:        oldCert.SubjectKeyId,
 	}
@@ -249,8 +256,13 @@ func (p *PKI) nextSerial() (*big.Int, error) {
 func buildSubject(cfg Config, o options, cn string) pkix.Name {
 	if cfg.DNMode == DNModeCNOnly || cfg.DNMode == "" {
 		name := pkix.Name{CommonName: cn}
-		if o.subject != nil && o.subject.CommonName != "" {
-			name.CommonName = o.subject.CommonName
+		if o.subject != nil {
+			if o.subject.CommonName != "" {
+				name.CommonName = o.subject.CommonName
+			}
+			if len(o.subject.ExtraNames) > 0 {
+				name.ExtraNames = append([]pkix.AttributeTypeAndValue(nil), o.subject.ExtraNames...)
+			}
 		}
 		if o.subjectSerial != "" {
 			name.SerialNumber = o.subjectSerial
@@ -259,26 +271,29 @@ func buildSubject(cfg Config, o options, cn string) pkix.Name {
 	}
 
 	// org mode: include all fields from SubjTemplate, override with options.
-	name := cfg.SubjTemplate
+	name := cloneName(cfg.SubjTemplate)
 	name.CommonName = cn
 	if o.subject != nil {
 		if o.subject.CommonName != "" {
 			name.CommonName = o.subject.CommonName
 		}
 		if len(o.subject.Organization) > 0 {
-			name.Organization = o.subject.Organization
+			name.Organization = append([]string(nil), o.subject.Organization...)
 		}
 		if len(o.subject.Country) > 0 {
-			name.Country = o.subject.Country
+			name.Country = append([]string(nil), o.subject.Country...)
 		}
 		if len(o.subject.Province) > 0 {
-			name.Province = o.subject.Province
+			name.Province = append([]string(nil), o.subject.Province...)
 		}
 		if len(o.subject.Locality) > 0 {
-			name.Locality = o.subject.Locality
+			name.Locality = append([]string(nil), o.subject.Locality...)
 		}
 		if len(o.subject.OrganizationalUnit) > 0 {
-			name.OrganizationalUnit = o.subject.OrganizationalUnit
+			name.OrganizationalUnit = append([]string(nil), o.subject.OrganizationalUnit...)
+		}
+		if len(o.subject.ExtraNames) > 0 {
+			name.ExtraNames = append([]pkix.AttributeTypeAndValue(nil), o.subject.ExtraNames...)
 		}
 	}
 	if o.subjectSerial != "" {

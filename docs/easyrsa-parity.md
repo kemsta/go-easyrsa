@@ -2,6 +2,16 @@
 
 This document tracks the correspondence between easy-rsa commands and go-easyrsa library methods.
 
+The repository also contains a Cobra-based `go-easyrsa` CLI in
+`cmd/go-easyrsa`, implemented on top of these methods. Its 28-command
+positive-compatibility subset is verified by E2E against the pinned Easy-RSA
+v3.2.6 reference. The
+remaining upstream command surface is explicitly deferred rather than claimed
+as complete parity.
+
+For command/flag/env parity tracking of the CLI itself, see
+[`docs/go-easyrsa-cli-parity.md`](go-easyrsa-cli-parity.md).
+
 ## Command → Method Mapping
 
 | easy-rsa command            | v2 status                           |
@@ -33,6 +43,12 @@ This document tracks the correspondence between easy-rsa commands and go-easyrsa
 | `update-db`                 | ✅ `PKI.UpdateDB()`                 |
 | `set-pass [name]`           | ✅ `PKI.SetPass(name, old, new)`    |
 | `init-pki`                  | via `NewWithFS()` (auto-creates dirs)|
+
+The CLI adds Easy-RSA filesystem lifecycle behavior around several methods:
+`expire` moves `issued/NAME.crt` to `expired/NAME.crt`, and revoke commands
+archive files under `revoked/*_by_serial`. The library methods retain
+backend-neutral index/CRL semantics and therefore are not byte-for-byte CLI
+implementations of those shell commands.
 
 Additional library extensions (no easy-rsa equivalent):
 
