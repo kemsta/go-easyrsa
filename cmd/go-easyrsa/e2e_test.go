@@ -47,9 +47,10 @@ func TestMain(m *testing.M) {
 }
 
 type binaryRunner struct {
-	binary string
-	env    []string
-	pkiDir string
+	binary     string
+	env        []string
+	pkiDir     string
+	workingDir string
 }
 
 type commandResult struct {
@@ -104,20 +105,21 @@ type pairMeta struct {
 }
 
 type requestMeta struct {
-	Name          string
-	CN            string
-	Country       []string
-	Province      []string
-	Locality      []string
-	Organizations []string
-	OrgUnits      []string
-	SubjectEmails []string
-	SubjectSerial string
-	DNS           []string
-	IPs           []string
-	Emails        []string
-	PublicKeyAlgo string
-	PublicKeyInfo string
+	Name               string
+	CN                 string
+	Country            []string
+	Province           []string
+	Locality           []string
+	Organizations      []string
+	OrgUnits           []string
+	SubjectEmails      []string
+	SubjectSerial      string
+	DNS                []string
+	IPs                []string
+	Emails             []string
+	PublicKeyAlgo      string
+	PublicKeyInfo      string
+	SignatureAlgorithm string
 }
 
 type crlMeta struct {
@@ -1109,6 +1111,7 @@ func (r binaryRunner) runCommand(args ...string) commandResult {
 	}
 	cmd := exec.Command(r.binary, argv...)
 	cmd.Env = sanitizedCommandEnv(r.env)
+	cmd.Dir = r.workingDir
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -1371,19 +1374,20 @@ func normalizeRequest(t *testing.T, path string) requestMeta {
 	require.NoError(t, request.CheckSignature())
 	algo, info := publicKeyDescription(request.PublicKey)
 	meta := requestMeta{
-		Name:          strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
-		CN:            request.Subject.CommonName,
-		Country:       canonicalStrings(request.Subject.Country),
-		Province:      canonicalStrings(request.Subject.Province),
-		Locality:      canonicalStrings(request.Subject.Locality),
-		Organizations: canonicalStrings(request.Subject.Organization),
-		OrgUnits:      canonicalStrings(request.Subject.OrganizationalUnit),
-		SubjectEmails: subjectEmailsFromName(request.Subject.Names),
-		SubjectSerial: request.Subject.SerialNumber,
-		DNS:           canonicalStrings(request.DNSNames),
-		Emails:        canonicalStrings(request.EmailAddresses),
-		PublicKeyAlgo: algo,
-		PublicKeyInfo: info,
+		Name:               strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
+		CN:                 request.Subject.CommonName,
+		Country:            canonicalStrings(request.Subject.Country),
+		Province:           canonicalStrings(request.Subject.Province),
+		Locality:           canonicalStrings(request.Subject.Locality),
+		Organizations:      canonicalStrings(request.Subject.Organization),
+		OrgUnits:           canonicalStrings(request.Subject.OrganizationalUnit),
+		SubjectEmails:      subjectEmailsFromName(request.Subject.Names),
+		SubjectSerial:      request.Subject.SerialNumber,
+		DNS:                canonicalStrings(request.DNSNames),
+		Emails:             canonicalStrings(request.EmailAddresses),
+		PublicKeyAlgo:      algo,
+		PublicKeyInfo:      info,
+		SignatureAlgorithm: request.SignatureAlgorithm.String(),
 	}
 	for _, ip := range request.IPAddresses {
 		meta.IPs = append(meta.IPs, ip.String())

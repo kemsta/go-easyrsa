@@ -23,12 +23,12 @@ canonical `--flag=value` form and place global options before the command.
 
 The tagged CLI E2E suite passes against the pinned Easy-RSA v3.2.6 reference
 and is required by CI. This verifies the declared subset; it is not a claim
-that the 16 deferred commands or explicitly unsupported controls are drop-in
+that the 10 deferred commands or explicitly unsupported controls are drop-in
 compatible.
 
 ## Current command subset
 
-These 28 registered command names are in scope. Every name is exercised by at
+These 34 registered command names are in scope. Every name is exercised by at
 least one canonical upstream-valid E2E scenario, in addition to focused
 ordinary tests.
 
@@ -49,11 +49,13 @@ ordinary tests.
 | `revoke-issued` | ✅ |
 | `revoke-expired` | ✅ |
 | `gen-crl` | ✅ |
+| `show-req` | ✅ |
 | `show-cert` | ✅ |
 | `show-ca` | ✅ |
 | `show-crl` | ✅ |
 | `show-expire` | ✅ |
 | `show-revoke` | ✅ |
+| `show-eku` | ✅ |
 | `verify-cert` | ✅ |
 | `export-p12` | ✅ |
 | `export-p7` | ✅ |
@@ -62,21 +64,21 @@ ordinary tests.
 | `gen-dh` | ✅ |
 | `update-db` | ✅ |
 | `set-pass` | ✅ |
+| `serial` | ✅ |
+| `check-serial` | ✅ |
+| `display-dn` | ✅ |
+| `rand` | ✅ |
 
 ## Deferred upstream commands
 
-These 16 upstream command names are not registered in the current phase:
+These 10 upstream command names are not registered in the current phase:
 
 - `self-sign-server`, `self-sign-client`
 - `inline`
-- `revoke-renewed`
-- `show-req`, `show-renew`, `show-eku`
+- `revoke-renewed`, `show-renew`
 - `import-ca`, `import-tls-key`
 - `gen-tls-auth-key`, `gen-tls-crypt-key`
 - `write`
-- `serial`, `check-serial`
-- `display-dn`
-- `rand`
 
 ## Flags and positional controls
 
@@ -159,6 +161,19 @@ default. `GO_EASYRSA_STRICT_ENV_PARITY=0` (or the legacy
 migration. It does not bypass explicit `rawca` or PKCS#12 friendly-name
 rejections.
 
+## Inspection and utility semantics
+
+`show-req`, `show-eku`, `serial`, and `check-serial` use non-initializing,
+read-only PKI access. They do not create layout directories or advance the
+serial counter. `display-dn` parses certificates and requests, while
+explicit-path `show-eku` parses certificates. Both use Go's ASN.1 and
+`crypto/x509` packages rather than an OpenSSL subprocess. `rand` streams bytes from `crypto/rand` and prints lowercase
+hex.
+
+`show-eku` follows Easy-RSA's path-first behavior and falls back to a PKI entity
+name for missing or non-regular paths. Batch serial checks are silent: an
+available serial succeeds, while an occupied serial exits non-zero.
+
 ## Operational controls outside this phase
 
 Shell/OpenSSL plumbing and output-only controls remain ⛔, including variables
@@ -194,5 +209,5 @@ The suite:
 - verifies representative mixed-producer continuation in both directions;
 - fails if the pinned Easy-RSA reference is missing.
 
-The declared 28-command positive-compatibility subset has no skipped or
+The declared 34-command positive-compatibility subset has no skipped or
 expected E2E failures.

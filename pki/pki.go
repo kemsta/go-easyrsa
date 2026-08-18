@@ -46,9 +46,9 @@ func New(
 	}, nil
 }
 
-// NewWithFS constructs a PKI backed by a filesystem PKI directory
-// using the easy-rsa-compatible layout.
-func NewWithFS(pkiDir string, cfg Config) (*PKI, error) {
+// OpenWithFS opens a PKI backed by an existing filesystem layout without
+// creating directories or files. It is suitable for read-only operations.
+func OpenWithFS(pkiDir string, cfg Config) (*PKI, error) {
 	cfg = applyConfigDefaults(cfg)
 	ks := fsstore.NewKeyStorage(pkiDir, cfg.CAName)
 	cs := fsstore.NewCSRStorage(pkiDir)
@@ -58,6 +58,16 @@ func NewWithFS(pkiDir string, cfg Config) (*PKI, error) {
 	pk, err := New(cfg, ks, cs, idx, sp, crl)
 	if err != nil {
 		return nil, wrapForeignStorageError(err, pkiDir, "current PKI filesystem layout")
+	}
+	return pk, nil
+}
+
+// NewWithFS constructs a PKI backed by a filesystem PKI directory
+// using the easy-rsa-compatible layout, initializing its directories.
+func NewWithFS(pkiDir string, cfg Config) (*PKI, error) {
+	pk, err := OpenWithFS(pkiDir, cfg)
+	if err != nil {
+		return nil, err
 	}
 	if err := fsstore.InitDirs(pkiDir); err != nil {
 		return nil, err

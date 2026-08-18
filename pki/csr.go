@@ -2,6 +2,7 @@ package pki
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
@@ -53,6 +54,11 @@ func (p *PKI) GenReq(name string, opts ...Option) (csrPEM []byte, err error) {
 		DNSNames:       o.dnsNames,
 		IPAddresses:    o.ipAddresses,
 		EmailAddresses: o.emailAddrs,
+	}
+	// Easy-RSA's default digest is SHA-256 for every ECDSA curve. Go's x509
+	// default scales the digest with the curve, so select SHA-256 explicitly.
+	if _, ok := privKey.(*ecdsa.PrivateKey); ok {
+		template.SignatureAlgorithm = x509.ECDSAWithSHA256
 	}
 
 	csrDER, err := x509.CreateCertificateRequest(rand.Reader, template, privKey)

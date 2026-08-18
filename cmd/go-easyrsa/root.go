@@ -71,11 +71,13 @@ func newRootCmd() *cobra.Command {
 		newRevokeCmd(&opts, "revoke-issued"),
 		newRevokeExpiredCmd(&opts),
 		newGenCRLCmd(&opts),
+		newShowReqCmd(&opts),
 		newShowCertCmd(&opts),
 		newShowCACmd(&opts),
 		newShowCRLCmd(&opts),
 		newShowExpireCmd(&opts),
 		newShowRevokeCmd(&opts),
+		newShowEKUCmd(&opts),
 		newVerifyCertCmd(&opts),
 		newExportP12Cmd(&opts),
 		newExportP7Cmd(&opts),
@@ -84,6 +86,10 @@ func newRootCmd() *cobra.Command {
 		newGenDHCmd(&opts),
 		newUpdateDBCmd(&opts),
 		newSetPassCmd(&opts),
+		newCheckSerialCmd(&opts, "serial"),
+		newCheckSerialCmd(&opts, "check-serial"),
+		newDisplayDNCmd(),
+		newRandCmd(),
 	}
 	for _, command := range commands {
 		if commandUsesInternalLifecycleLock(command.Name()) || commandIsReadOnly(command.Name()) {
@@ -113,7 +119,8 @@ func commandUsesInternalLifecycleLock(name string) bool {
 
 func commandIsReadOnly(name string) bool {
 	switch name {
-	case "show-cert", "show-ca", "show-crl", "show-expire", "show-revoke", "verify-cert":
+	case "show-req", "show-cert", "show-ca", "show-crl", "show-expire", "show-revoke", "show-eku", "verify-cert",
+		"serial", "check-serial", "display-dn", "rand":
 		return true
 	default:
 		return false
