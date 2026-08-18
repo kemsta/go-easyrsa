@@ -146,7 +146,7 @@ func (p *PKI) SignReq(name string, certType cert.CertType, opts ...Option) (*cer
 	if !o.notBefore.IsZero() {
 		notBefore = o.notBefore
 	}
-	notAfter := notBefore.AddDate(0, 0, p.config.DefaultDays)
+	notAfter := addExactDays(notBefore, p.config.DefaultDays)
 	if !o.notAfter.IsZero() {
 		notAfter = o.notAfter
 	}

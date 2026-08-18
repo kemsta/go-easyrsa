@@ -97,7 +97,7 @@ func (p *PKI) Renew(name string, opts ...Option) (*cert.Pair, error) {
 	if !o.notBefore.IsZero() {
 		notBefore = o.notBefore
 	}
-	notAfter := notBefore.AddDate(0, 0, p.config.DefaultDays)
+	notAfter := addExactDays(notBefore, p.config.DefaultDays)
 	if !o.notAfter.IsZero() {
 		notAfter = o.notAfter
 	}

@@ -153,7 +153,7 @@ func (p *PKI) GenCRL() ([]byte, error) {
 	template := &x509.RevocationList{
 		Number:                    crlNumber,
 		ThisUpdate:                now,
-		NextUpdate:                now.AddDate(0, 0, p.config.CRLDays),
+		NextUpdate:                addExactDays(now, p.config.CRLDays),
 		RevokedCertificateEntries: revokedEntries,
 	}
 

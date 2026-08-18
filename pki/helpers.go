@@ -4,6 +4,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/kemsta/go-easyrsa/v2/storage"
 )
@@ -37,6 +38,10 @@ func validateEntityName(name string) error {
 		return errors.New("pki: entity name must not contain null bytes")
 	}
 	return nil
+}
+
+func addExactDays(t time.Time, days int) time.Time {
+	return t.UTC().AddDate(0, 0, days).In(t.Location())
 }
 
 func isReadOnly(v any) bool {

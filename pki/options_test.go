@@ -197,6 +197,39 @@ func TestBuildCA_AppliesSubCAPathLenOption(t *testing.T) {
 	assert.Zero(t, crt.MaxPathLen)
 }
 
+func TestValidityDaysAreExactAcrossDST(t *testing.T) {
+	location, err := time.LoadLocation("Europe/Berlin")
+	require.NoError(t, err)
+	start := time.Date(2026, time.August, 18, 12, 0, 0, 0, location)
+	const days = 100
+	p := newTestPKI(pki.Config{NoPass: true, CADays: days, DefaultDays: days})
+
+	caPair, err := p.BuildCA(pki.WithNoPass(), pki.WithNotBefore(start))
+	require.NoError(t, err)
+	caCertificate, err := caPair.Certificate()
+	require.NoError(t, err)
+	assert.Equal(t, time.Duration(days)*24*time.Hour, caCertificate.NotAfter.Sub(caCertificate.NotBefore))
+
+	clientPair, err := p.BuildClientFull("client1", pki.WithNoPass(), pki.WithNotBefore(start))
+	require.NoError(t, err)
+	clientCertificate, err := clientPair.Certificate()
+	require.NoError(t, err)
+	assert.Equal(t, time.Duration(days)*24*time.Hour, clientCertificate.NotAfter.Sub(clientCertificate.NotBefore))
+}
+
+func TestValidityDaysDoNotOverflowDuration(t *testing.T) {
+	const days = 106_752
+	start := time.Date(2026, time.August, 18, 12, 0, 0, 0, time.UTC)
+	p := newTestPKI(pki.Config{NoPass: true, CADays: days})
+
+	pair, err := p.BuildCA(pki.WithNoPass(), pki.WithNotBefore(start))
+	require.NoError(t, err)
+	certificate, err := pair.Certificate()
+	require.NoError(t, err)
+	assert.Equal(t, start.AddDate(0, 0, days), certificate.NotAfter)
+	assert.True(t, certificate.NotAfter.After(start))
+}
+
 func TestBuildClientFull_PassphraseAndNoPassOverrides(t *testing.T) {
 	t.Run("WithPassphrase encrypts generated key", func(t *testing.T) {
 		p := newTestPKI(pki.Config{NoPass: true})

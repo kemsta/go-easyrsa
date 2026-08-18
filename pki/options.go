@@ -88,7 +88,7 @@ func WithNotAfter(t time.Time) Option {
 
 // WithDays sets NotAfter to now + days.
 func WithDays(days int) Option {
-	return func(o *options) { o.notAfter = time.Now().AddDate(0, 0, days) }
+	return func(o *options) { o.notAfter = addExactDays(time.Now(), days) }
 }
 
 // WithCN sets the certificate Common Name.

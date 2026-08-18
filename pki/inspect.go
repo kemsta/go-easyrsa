@@ -30,7 +30,7 @@ func (p *PKI) ShowExpiring(withinDays int) ([]*cert.Pair, error) {
 	if err != nil {
 		return nil, err
 	}
-	cutoff := time.Now().AddDate(0, 0, withinDays)
+	cutoff := addExactDays(time.Now(), withinDays)
 	var pairs []*cert.Pair
 	var errs []error
 	for _, e := range entries {

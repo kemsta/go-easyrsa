@@ -57,7 +57,7 @@ func (p *PKI) BuildCA(opts ...Option) (*cert.Pair, error) {
 	if !o.notBefore.IsZero() {
 		notBefore = o.notBefore
 	}
-	notAfter := notBefore.AddDate(0, 0, p.config.CADays)
+	notAfter := addExactDays(notBefore, p.config.CADays)
 	if !o.notAfter.IsZero() {
 		notAfter = o.notAfter
 	}
@@ -167,7 +167,7 @@ func (p *PKI) RenewCA(opts ...Option) (*cert.Pair, error) {
 	if !o.notBefore.IsZero() {
 		notBefore = o.notBefore
 	}
-	notAfter := notBefore.AddDate(0, 0, p.config.CADays)
+	notAfter := addExactDays(notBefore, p.config.CADays)
 	if !o.notAfter.IsZero() {
 		notAfter = o.notAfter
 	}
