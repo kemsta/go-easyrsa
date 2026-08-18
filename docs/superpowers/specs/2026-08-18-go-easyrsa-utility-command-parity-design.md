@@ -190,18 +190,26 @@ All four modules continue to pass tests and vet on Go 1.25.13 and 1.26.6. Root a
 
 `docs/go-easyrsa-cli-parity.md` moves the six commands into the verified table, leaves `show-renew` in the lifecycle group, and reports 34 verified and 10 deferred command names. README claims remain bounded to the verified subset.
 
+## Nested-module dependency flow
+
+`cmd/go-easyrsa/go.mod` currently requires the released root module `v2.2.0` and intentionally has no local `replace`. The new CLI commands need APIs introduced by this PR, so the library commit must be pushed before CLI implementation. The branch then resolves that exact root commit to a valid `v2.2.1-0...` pseudo-version and updates only `cmd/go-easyrsa` to require it. The development-only `replace => ../..` must not return.
+
+This keeps the nested module installable from every merged commit while avoiding an intermediate root release. If a later correction changes root library code, the CLI requirement is advanced to the correction's pseudo-version. After all four command-series PRs, the single release-preparation change replaces the pseudo-version with the final stable root release before tagging the CLI.
+
 ## Commit structure
 
 1. Design document.
-2. Library API and focused storage/certificate tests.
-3. CLI commands and ordinary tests.
-4. Cross-implementation E2E and compatibility documentation.
+2. Library API and focused storage/certificate tests; push this commit.
+3. Resolve and record the library commit's pseudo-version in `cmd/go-easyrsa`.
+4. CLI commands and ordinary tests.
+5. Cross-implementation E2E and compatibility documentation.
 
 ## Acceptance criteria
 
 - All six command names are registered.
 - Every command has at least one successful canonical Easy-RSA v3.2.6 E2E scenario.
 - Library APIs use the Easy-RSA-shaped names and semantics described above.
+- `cmd/go-easyrsa` consumes the pushed library commit by pseudo-version and contains no local `replace`.
 - Explicit-path parsing never invokes OpenSSL, cannot block on a FIFO, and preserves Easy-RSA's non-regular-path fallback for `show-eku`.
 - Read-only PKI construction creates no directories or files.
 - `CheckSerial` returns a deep copy and never exposes mutable index state.
