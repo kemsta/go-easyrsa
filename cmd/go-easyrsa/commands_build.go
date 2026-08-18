@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/elliptic"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,6 +75,14 @@ func newBuildCACmd(opts *cliOptions) *cobra.Command {
 			buildOpts, err := buildCommonOptions(opts, cfg, "", commandScopeCA, nil, cmdOpts)
 			if err != nil {
 				return err
+			}
+			reqCN := strings.TrimSpace(opts.reqCN)
+			if reqCN == "" || reqCN == "ChangeMe" {
+				cn := "Easy-RSA CA"
+				if cmdOpts["subca"] {
+					cn = "Easy-RSA Sub-CA"
+				}
+				buildOpts = append(buildOpts, pki.WithCN(cn))
 			}
 			pair, err := pk.BuildCA(buildOpts...)
 			if err != nil {
@@ -238,14 +247,20 @@ func newBuildFullCmd(opts *cliOptions, use string, certType cert.CertType) *cobr
 func newExpireCmd(opts *cliOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "expire <name>",
-		Short: "Mark a certificate as expired in the index",
+		Short: "Move a current certificate to the expired directory",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pk, _, err := openPKI(opts, nil)
-			if err != nil {
+			if err := validateLifecycleName(args[0]); err != nil {
 				return err
 			}
-			return pk.ExpireCert(args[0])
+			if _, _, err := openPKI(opts, nil); err != nil {
+				return err
+			}
+			return movePKIFile(
+				opts.pkiDir,
+				filepath.Join("issued", args[0]+".crt"),
+				filepath.Join("expired", args[0]+".crt"),
+			)
 		},
 	}
 }
@@ -287,11 +302,35 @@ func newRevokeCmd(opts *cliOptions, use string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := validateLifecycleName(args[0]); err != nil {
+				return err
+			}
 			pk, _, err := openPKI(opts, nil)
 			if err != nil {
 				return err
 			}
-			return pk.Revoke(args[0], reason)
+			return withLifecycleSession(opts.pkiDir, func(session *lifecycleSession) error {
+				certificateFile, err := session.readRegular(filepath.Join("issued", args[0]+".crt"))
+				if err != nil {
+					return err
+				}
+				pair := &cert.Pair{Name: args[0], CertPEM: certificateFile.data}
+				serial, err := pair.Serial()
+				if err != nil {
+					return err
+				}
+				staged, err := session.stageIssuedCertificate(args[0], serial, certificateFile.info)
+				if err != nil {
+					return err
+				}
+				if err := pk.RevokeBySerial(serial, reason); err != nil {
+					return errors.Join(err, staged.Rollback())
+				}
+				if err := staged.Commit(); err != nil {
+					return err
+				}
+				return removeRevokedExports(session, args[0])
+			})
 		},
 	}
 }
@@ -306,11 +345,32 @@ func newRevokeExpiredCmd(opts *cliOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := validateLifecycleName(args[0]); err != nil {
+				return err
+			}
 			pk, _, err := openPKI(opts, nil)
 			if err != nil {
 				return err
 			}
-			return pk.RevokeExpired(args[0], reason)
+			return withLifecycleSession(opts.pkiDir, func(session *lifecycleSession) error {
+				certificateFile, err := session.readRegular(filepath.Join("expired", args[0]+".crt"))
+				if err != nil {
+					return err
+				}
+				pair := &cert.Pair{Name: args[0], CertPEM: certificateFile.data}
+				serial, err := pair.Serial()
+				if err != nil {
+					return err
+				}
+				staged, err := session.stageExpiredCertificate(args[0], serial, certificateFile.info)
+				if err != nil {
+					return err
+				}
+				if err := pk.RevokeBySerial(serial, reason); err != nil {
+					return errors.Join(err, staged.Rollback())
+				}
+				return staged.Commit()
+			})
 		},
 	}
 }

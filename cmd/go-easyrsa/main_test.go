@@ -15,6 +15,7 @@ import (
 
 	pkicrypto "github.com/kemsta/go-easyrsa/v2/crypto"
 	"github.com/kemsta/go-easyrsa/v2/pki"
+	"github.com/kemsta/go-easyrsa/v2/storage"
 )
 
 func TestCLI_HelpDoesNotExposePassphrasesFromEnv(t *testing.T) {
@@ -82,6 +83,49 @@ func TestCLI_BuildCAAndClient(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, clientPair.HasKey())
 	require.NoError(t, pk.VerifyCert("alice"))
+}
+
+func TestCLI_BuildCAUsesEasyRSADefaultCN(t *testing.T) {
+	dir := t.TempDir()
+
+	out, err := runCLI(t, "--pki-dir", dir, "--nopass", "build-ca")
+	require.NoError(t, err, out)
+
+	pk := openFS(t, dir, pki.Config{NoPass: true})
+	pair, err := pk.ShowCA()
+	require.NoError(t, err)
+	certificate, err := pair.Certificate()
+	require.NoError(t, err)
+	require.Equal(t, "Easy-RSA CA", certificate.Subject.CommonName)
+}
+
+func TestCLI_BuildCADefaultCNSentinelAndOverrides(t *testing.T) {
+	tests := []struct {
+		name     string
+		reqCN    string
+		command  []string
+		expected string
+	}{
+		{name: "ChangeMe root", reqCN: "ChangeMe", command: []string{"build-ca"}, expected: "Easy-RSA CA"},
+		{name: "ChangeMe sub CA", reqCN: "ChangeMe", command: []string{"build-ca", "subca"}, expected: "Easy-RSA Sub-CA"},
+		{name: "explicit empty", reqCN: "", command: []string{"build-ca"}, expected: "Easy-RSA CA"},
+		{name: "custom", reqCN: "Custom Root", command: []string{"build-ca"}, expected: "Custom Root"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("EASYRSA_REQ_CN", tt.reqCN)
+			args := append([]string{"--pki-dir", dir, "--nopass"}, tt.command...)
+			out, err := runCLI(t, args...)
+			require.NoError(t, err, out)
+			pk := openFS(t, dir, pki.Config{NoPass: true})
+			pair, err := pk.ShowCA()
+			require.NoError(t, err)
+			certificate, err := pair.Certificate()
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, certificate.Subject.CommonName)
+		})
+	}
 }
 
 func TestCLI_UsesEnvBackedConfig(t *testing.T) {
@@ -334,6 +378,213 @@ func TestCLI_MixedSANAliasesAccumulate(t *testing.T) {
 	require.ElementsMatch(t, []string{"first.example.test", "second.example.test"}, crt.DNSNames)
 }
 
+func TestCLI_ExpireMovesCertificateWithoutChangingIndexStatus(t *testing.T) {
+	dir := t.TempDir()
+	out, err := runCLI(t, "--pki-dir", dir, "--nopass", "build-ca")
+	require.NoError(t, err, out)
+	out, err = runCLI(t, "--pki-dir", dir, "--nopass", "build-client-full", "alice")
+	require.NoError(t, err, out)
+
+	out, err = runCLI(t, "--pki-dir", dir, "expire", "alice")
+	require.NoError(t, err, out)
+	require.NoFileExists(t, filepath.Join(dir, "issued", "alice.crt"))
+	require.FileExists(t, filepath.Join(dir, "expired", "alice.crt"))
+	requireIndexStatus(t, dir, "alice", storage.StatusValid)
+}
+
+func TestCLI_ExpireRejectsForeignDirectory(t *testing.T) {
+	dir := t.TempDir()
+	issued := filepath.Join(dir, "issued")
+	require.NoError(t, os.MkdirAll(issued, 0o755))
+	path := filepath.Join(issued, "alice.crt")
+	require.NoError(t, os.WriteFile(path, []byte("foreign"), 0o644))
+
+	_, err := runCLI(t, "--pki-dir", dir, "expire", "alice")
+	require.Error(t, err)
+	data, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	require.Equal(t, []byte("foreign"), data)
+	require.NoFileExists(t, filepath.Join(dir, "expired", "alice.crt"))
+}
+
+func TestCLI_RevokeIssuedArchivesCurrentFiles(t *testing.T) {
+	dir := t.TempDir()
+	out, err := runCLI(t, "--pki-dir", dir, "--nopass", "build-ca")
+	require.NoError(t, err, out)
+	out, err = runCLI(t, "--pki-dir", dir, "--nopass", "build-client-full", "alice")
+	require.NoError(t, err, out)
+	pk := openFS(t, dir, pki.Config{NoPass: true})
+	pair, err := pk.ShowCert("alice")
+	require.NoError(t, err)
+	serial, err := pair.Serial()
+	require.NoError(t, err)
+	hexSerial := storage.HexSerial(serial)
+	for _, args := range [][]string{
+		{"--pki-dir", dir, "export-p12", "alice", "nopass"},
+		{"--pki-dir", dir, "export-p7", "alice"},
+		{"--pki-dir", dir, "export-p8", "alice", "nopass"},
+		{"--pki-dir", dir, "export-p1", "alice", "nopass"},
+	} {
+		out, err = runCLI(t, args...)
+		require.NoError(t, err, out)
+	}
+
+	out, err = runCLI(t, "--pki-dir", dir, "revoke-issued", "alice")
+	require.NoError(t, err, out)
+	require.NoFileExists(t, filepath.Join(dir, "issued", "alice.crt"))
+	require.NoFileExists(t, filepath.Join(dir, "private", "alice.key"))
+	require.FileExists(t, filepath.Join(dir, "revoked", "certs_by_serial", hexSerial+".crt"))
+	require.FileExists(t, filepath.Join(dir, "revoked", "private_by_serial", hexSerial+".key"))
+	require.FileExists(t, filepath.Join(dir, "revoked", "reqs_by_serial", hexSerial+".req"))
+	for _, path := range []string{
+		filepath.Join(dir, "private", "alice.p12"),
+		filepath.Join(dir, "issued", "alice.p7b"),
+		filepath.Join(dir, "private", "alice.p8"),
+		filepath.Join(dir, "private", "alice.p1"),
+	} {
+		require.NoFileExists(t, path)
+	}
+	requireIndexStatus(t, dir, "alice", storage.StatusRevoked)
+}
+
+func TestCLI_RevokeExpiredArchivesExpiredCertificate(t *testing.T) {
+	dir := t.TempDir()
+	out, err := runCLI(t, "--pki-dir", dir, "--nopass", "build-ca")
+	require.NoError(t, err, out)
+	out, err = runCLI(t, "--pki-dir", dir, "--nopass", "build-client-full", "alice")
+	require.NoError(t, err, out)
+	pk := openFS(t, dir, pki.Config{NoPass: true})
+	pair, err := pk.ShowCert("alice")
+	require.NoError(t, err)
+	serial, err := pair.Serial()
+	require.NoError(t, err)
+	hexSerial := storage.HexSerial(serial)
+
+	out, err = runCLI(t, "--pki-dir", dir, "expire", "alice")
+	require.NoError(t, err, out)
+	out, err = runCLI(t, "--pki-dir", dir, "revoke-expired", "alice")
+	require.NoError(t, err, out)
+	require.NoFileExists(t, filepath.Join(dir, "expired", "alice.crt"))
+	require.FileExists(t, filepath.Join(dir, "revoked", "certs_by_serial", hexSerial+".crt"))
+	require.FileExists(t, filepath.Join(dir, "private", "alice.key"))
+	require.FileExists(t, filepath.Join(dir, "reqs", "alice.req"))
+	requireIndexStatus(t, dir, "alice", storage.StatusRevoked)
+}
+
+func TestCLI_RevokeArchiveConflictLeavesCurrentStateUntouched(t *testing.T) {
+	tests := []struct {
+		name          string
+		directory     string
+		extension     string
+		missingSource string
+	}{
+		{name: "certificate", directory: "certs_by_serial", extension: ".crt"},
+		{name: "private key", directory: "private_by_serial", extension: ".key"},
+		{name: "request", directory: "reqs_by_serial", extension: ".req"},
+		{name: "missing private key", directory: "private_by_serial", extension: ".key", missingSource: filepath.Join("private", "alice.key")},
+		{name: "missing request", directory: "reqs_by_serial", extension: ".req", missingSource: filepath.Join("reqs", "alice.req")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			out, err := runCLI(t, "--pki-dir", dir, "--nopass", "build-ca")
+			require.NoError(t, err, out)
+			out, err = runCLI(t, "--pki-dir", dir, "--nopass", "build-client-full", "alice")
+			require.NoError(t, err, out)
+			pk := openFS(t, dir, pki.Config{NoPass: true})
+			pair, err := pk.ShowCert("alice")
+			require.NoError(t, err)
+			serial, err := pair.Serial()
+			require.NoError(t, err)
+			hexSerial := storage.HexSerial(serial)
+			if tt.missingSource != "" {
+				require.NoError(t, os.Remove(filepath.Join(dir, tt.missingSource)))
+			}
+			conflict := filepath.Join(dir, "revoked", tt.directory, hexSerial+tt.extension)
+			require.NoError(t, os.MkdirAll(filepath.Dir(conflict), 0o755))
+			require.NoError(t, os.WriteFile(conflict, []byte("conflict"), 0o600))
+
+			_, err = runCLI(t, "--pki-dir", dir, "revoke-issued", "alice")
+			require.Error(t, err)
+			require.FileExists(t, filepath.Join(dir, "issued", "alice.crt"))
+			for _, source := range []string{filepath.Join("private", "alice.key"), filepath.Join("reqs", "alice.req")} {
+				if source == tt.missingSource {
+					require.NoFileExists(t, filepath.Join(dir, source))
+				} else {
+					require.FileExists(t, filepath.Join(dir, source))
+				}
+			}
+			if tt.directory != "certs_by_serial" {
+				require.NoFileExists(t, filepath.Join(dir, "revoked", "certs_by_serial", hexSerial+".crt"))
+			}
+			if tt.directory == "reqs_by_serial" {
+				require.NoFileExists(t, filepath.Join(dir, "revoked", "private_by_serial", hexSerial+".key"))
+			}
+			requireIndexStatus(t, dir, "alice", storage.StatusValid)
+			data, readErr := os.ReadFile(conflict)
+			require.NoError(t, readErr)
+			require.Equal(t, []byte("conflict"), data)
+		})
+	}
+}
+
+func TestCLI_RevokeExpiredRejectsInvalidEntityNames(t *testing.T) {
+	dir := t.TempDir()
+	out, err := runCLI(t, "--pki-dir", dir, "--nopass", "build-ca")
+	require.NoError(t, err, out)
+
+	for _, name := range []string{"../ca", "../issued/alice", filepath.Join(dir, "ca")} {
+		_, err := runCLI(t, "--pki-dir", dir, "revoke-expired", name)
+		require.Error(t, err)
+	}
+	require.FileExists(t, filepath.Join(dir, "ca.crt"))
+	requireIndexStatus(t, dir, "Easy-RSA CA", storage.StatusValid)
+}
+
+func TestCLI_ExpireRejectsSymlinkedSource(t *testing.T) {
+	dir := t.TempDir()
+	out, err := runCLI(t, "--pki-dir", dir, "--nopass", "build-ca")
+	require.NoError(t, err, out)
+	out, err = runCLI(t, "--pki-dir", dir, "--nopass", "build-client-full", "alice")
+	require.NoError(t, err, out)
+
+	issued := filepath.Join(dir, "issued", "alice.crt")
+	outside := filepath.Join(t.TempDir(), "outside.crt")
+	data, err := os.ReadFile(issued)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(outside, data, 0o600))
+	require.NoError(t, os.Remove(issued))
+	if err := os.Symlink(outside, issued); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	_, err = runCLI(t, "--pki-dir", dir, "expire", "alice")
+	require.Error(t, err)
+	require.FileExists(t, outside)
+	require.NoFileExists(t, filepath.Join(dir, "expired", "alice.crt"))
+}
+
+func TestCLI_MutatingCommandsHonorSharedLock(t *testing.T) {
+	dir := t.TempDir()
+	out, err := runCLI(t, "--pki-dir", dir, "--nopass", "build-ca")
+	require.NoError(t, err, out)
+	out, err = runCLI(t, "--pki-dir", dir, "--nopass", "build-client-full", "alice")
+	require.NoError(t, err, out)
+	lock, err := acquirePKIMutationLock(dir)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, lock.Unlock()) }()
+
+	for _, args := range [][]string{
+		{"--pki-dir", dir, "renew", "alice"},
+		{"--pki-dir", dir, "gen-crl"},
+		{"--pki-dir", dir, "--nopass", "build-client-full", "bob"},
+	} {
+		_, err := runCLI(t, args...)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "mutation is in progress")
+	}
+}
+
 func TestCLI_ShowExpire_AcceptsDaysArgument(t *testing.T) {
 	dir := t.TempDir()
 
@@ -447,7 +698,7 @@ func TestCLI_UsesEnvReqCNAndAutoSAN(t *testing.T) {
 	require.Equal(t, []string{"env.example.test"}, crt.DNSNames)
 }
 
-func TestCLI_UsesEnvReqSerial(t *testing.T) {
+func TestCLI_EnvReqSerialIsIgnoredInCNOnlyMode(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("EASYRSA_PKI", dir)
 	t.Setenv("EASYRSA_NO_PASS", "1")
@@ -463,7 +714,7 @@ func TestCLI_UsesEnvReqSerial(t *testing.T) {
 	require.NoError(t, err)
 	crt, err := pair.Certificate()
 	require.NoError(t, err)
-	require.Equal(t, "SER-42", crt.Subject.SerialNumber)
+	require.Empty(t, crt.Subject.SerialNumber)
 }
 
 func TestCLI_RequestFlagsAndDNMode_AffectSubject(t *testing.T) {
@@ -959,6 +1210,20 @@ func TestCLI_StrictUnsupportedEnvParityCanBeDisabled(t *testing.T) {
 
 	out, err := runCLI(t, "build-ca")
 	require.NoError(t, err, out)
+}
+
+func requireIndexStatus(t *testing.T, dir, name string, expected storage.CertStatus) {
+	t.Helper()
+	pk := openFS(t, dir, pki.Config{NoPass: true})
+	snapshot, err := pk.ExportSnapshot()
+	require.NoError(t, err)
+	for _, entry := range snapshot.Index {
+		if entry.Subject.CommonName == name {
+			require.Equal(t, expected, entry.Status)
+			return
+		}
+	}
+	t.Fatalf("index entry for %s not found", name)
 }
 
 func subjectEmailsFromCertificate(crt *x509.Certificate) []string {

@@ -55,7 +55,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().Lookup("passout").DefValue = ""
 	cmd.PersistentFlags().BoolVar(&opts.batch, "batch", opts.batch, "batch mode (accepted for compatibility)")
 
-	cmd.AddCommand(
+	commands := []*cobra.Command{
 		newInitPKICmd(&opts),
 		newBuildCACmd(&opts),
 		newRenewCACmd(&opts),
@@ -84,8 +84,40 @@ func newRootCmd() *cobra.Command {
 		newGenDHCmd(&opts),
 		newUpdateDBCmd(&opts),
 		newSetPassCmd(&opts),
-	)
+	}
+	for _, command := range commands {
+		if commandUsesInternalLifecycleLock(command.Name()) || commandIsReadOnly(command.Name()) {
+			continue
+		}
+		lockMutatingCommand(&opts, command)
+	}
+	cmd.AddCommand(commands...)
 	return cmd
+}
+
+func lockMutatingCommand(opts *cliOptions, command *cobra.Command) {
+	run := command.RunE
+	command.RunE = func(cmd *cobra.Command, args []string) error {
+		return withPKIMutationLock(opts.pkiDir, func() error { return run(cmd, args) })
+	}
+}
+
+func commandUsesInternalLifecycleLock(name string) bool {
+	switch name {
+	case "expire", "revoke", "revoke-issued", "revoke-expired":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandIsReadOnly(name string) bool {
+	switch name {
+	case "show-cert", "show-ca", "show-crl", "show-expire", "show-revoke", "verify-cert":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateCLIInputs(cmd *cobra.Command, opts *cliOptions) error {

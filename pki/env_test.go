@@ -155,5 +155,18 @@ func TestLoadConfigFromEnv_EmailAppearsInIssuedSubject(t *testing.T) {
 			break
 		}
 	}
-	assert.True(t, found, "expected emailAddress attribute in subject")
+	assert.True(t, found, "expected emailAddress attribute in CA subject")
+
+	client, err := pk.BuildClientFull("alice", pki.WithNoPass())
+	require.NoError(t, err)
+	clientCert, err := client.Certificate()
+	require.NoError(t, err)
+	found = false
+	for _, name := range clientCert.Subject.Names {
+		if name.Type.String() == "1.2.840.113549.1.9.1" && name.Value == "pki@example.test" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected emailAddress attribute in issued subject")
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/elliptic"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"net"
 	"testing"
 	"time"
@@ -93,6 +94,45 @@ func TestSignReq_AppliesCopyCSRExtensionsAndSubjectOverride(t *testing.T) {
 	require.Len(t, crt.IPAddresses, 1)
 	assert.Equal(t, "127.0.0.2", crt.IPAddresses[0].String())
 	assert.Equal(t, []string{"csr@example.com"}, crt.EmailAddresses)
+}
+
+func TestSignReq_CertModifierCanChangeSubject(t *testing.T) {
+	p := newTestPKI(pki.Config{NoPass: true})
+	buildTestCA(t, p)
+	_, err := p.GenReq("client1", pki.WithNoPass())
+	require.NoError(t, err)
+
+	pair, err := p.SignReq("client1", cert.CertTypeClient,
+		pki.WithCertModifier(func(c *x509.Certificate) {
+			c.Subject.CommonName = "modified-cn"
+		}),
+	)
+	require.NoError(t, err)
+	certificate, err := pair.Certificate()
+	require.NoError(t, err)
+	assert.Equal(t, "modified-cn", certificate.Subject.CommonName)
+}
+
+func TestSignReq_CertModifierCanSetRawSubject(t *testing.T) {
+	p := newTestPKI(pki.Config{NoPass: true})
+	buildTestCA(t, p)
+	_, err := p.GenReq("client1", pki.WithNoPass())
+	require.NoError(t, err)
+	rawSubject, err := asn1.Marshal(pkix.RDNSequence{
+		{{Type: asn1.ObjectIdentifier{2, 5, 4, 3}, Value: "raw-cn"}},
+	})
+	require.NoError(t, err)
+
+	pair, err := p.SignReq("client1", cert.CertTypeClient,
+		pki.WithCertModifier(func(c *x509.Certificate) {
+			c.Subject.CommonName = "structured-cn"
+			c.RawSubject = rawSubject
+		}),
+	)
+	require.NoError(t, err)
+	certificate, err := pair.Certificate()
+	require.NoError(t, err)
+	assert.Equal(t, "raw-cn", certificate.Subject.CommonName)
 }
 
 func TestBuildCA_AppliesSubCAPathLenOption(t *testing.T) {

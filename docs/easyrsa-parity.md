@@ -42,6 +42,12 @@ For command/flag/env parity tracking of the CLI itself, see
 | `set-pass [name]`           | ✅ `PKI.SetPass(name, old, new)`    |
 | `init-pki`                  | via `NewWithFS()` (auto-creates dirs)|
 
+The CLI adds Easy-RSA filesystem lifecycle behavior around several methods:
+`expire` moves `issued/NAME.crt` to `expired/NAME.crt`, and revoke commands
+archive files under `revoked/*_by_serial`. The library methods retain
+backend-neutral index/CRL semantics and therefore are not byte-for-byte CLI
+implementations of those shell commands.
+
 Additional library extensions (no easy-rsa equivalent):
 
 | Operation       | Method                              |

@@ -1,11 +1,13 @@
 package pki
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/kemsta/go-easyrsa/v2/cert"
@@ -150,8 +152,10 @@ func (p *PKI) SignReq(name string, certType cert.CertType, opts ...Option) (*cer
 	}
 
 	subject := csr.Subject
+	rawSubject := append([]byte(nil), csr.RawSubject...)
 	if o.subjectOverride != nil {
 		subject = *o.subjectOverride
+		rawSubject = nil
 	}
 
 	skid, err := subjectKeyID(csr.PublicKey)
@@ -162,6 +166,7 @@ func (p *PKI) SignReq(name string, certType cert.CertType, opts ...Option) (*cer
 	template := &x509.Certificate{
 		SerialNumber:   serial,
 		Subject:        subject,
+		RawSubject:     rawSubject,
 		NotBefore:      notBefore,
 		NotAfter:       notAfter,
 		KeyUsage:       x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
@@ -206,8 +211,13 @@ func (p *PKI) SignReq(name string, certType cert.CertType, opts ...Option) (*cer
 		template.EmailAddresses = o.emailAddrs
 	}
 
+	subjectBeforeModifiers := cloneName(template.Subject)
+	rawSubjectBeforeModifiers := append([]byte(nil), template.RawSubject...)
 	for _, mod := range o.certModifiers {
 		mod(template)
+	}
+	if !reflect.DeepEqual(template.Subject, subjectBeforeModifiers) && bytes.Equal(template.RawSubject, rawSubjectBeforeModifiers) {
+		template.RawSubject = nil
 	}
 
 	certDER, err := x509.CreateCertificate(rand.Reader, template, caCert, csr.PublicKey, caKey)

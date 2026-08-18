@@ -40,7 +40,7 @@ func buildCommonOptions(opts *cliOptions, cfg pki.Config, name string, scope com
 	if subject, hasSubject := subjectFromCLI(opts); hasSubject {
 		out = append(out, pki.WithSubject(subject))
 	}
-	if opts.reqSerial != "" {
+	if opts.reqSerial != "" && cfg.DNMode == pki.DNModeOrg {
 		out = append(out, pki.WithSubjectSerial(strings.TrimSpace(opts.reqSerial)))
 	}
 

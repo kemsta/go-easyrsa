@@ -138,6 +138,8 @@ Malformed boolean values do not silently enable `EASYRSA_NO_PASS`. Invalid
 numeric values are ignored by the non-failing library overlay and rejected by
 the CLI before it creates or mutates a PKI. New encrypted private keys use
 standard PBES2/PKCS#8 and legacy DEK-Info encrypted PEM remains readable.
+Easy-RSA's default CA CN and organizational subject template are applied by the
+CLI, including preservation of email attributes through CSR signing.
 
 The following result-affecting variables are currently ❌:
 
@@ -163,6 +165,18 @@ for debug/verbosity, temp directories, lock files, umask, vars-file loading,
 OpenSSL/OpenVPN executable paths, custom OpenSSL configuration, inline files,
 and shell error handling.
 
+## Lifecycle compatibility
+
+The CLI follows the upstream current-file lifecycle: `expire` moves a
+certificate from `issued` to `expired`, while revoke commands archive current
+certificate/key/request files under `revoked/*_by_serial`. Mutating CLI
+commands share a sibling advisory `.<pki-name>.go-easyrsa.lock`; lifecycle
+operations additionally pre-stage no-clobber copies and verify file identity
+before source deletion or rollback. The library retains
+its safer behavior of marking superseded renewal entries non-valid; semantic
+parity treats that old-history status as an intentional internal difference
+while requiring the current certificate and command continuation to match.
+
 ## Known E2E repair areas
 
 The current failures are being separated into harness defects and product
@@ -171,8 +185,6 @@ defects. Work still required includes:
 - identical canonical argv for both implementations;
 - artifact verification at upstream PKI paths rather than stdout substitution;
 - semantic comparison of entity identity, status, serial strategy, and time;
-- Easy-RSA defaults and subject-email behavior;
-- renew/revoke lifecycle and filesystem layout;
 - cross-implementation verification of encrypted PKCS#8 and passphrase flows;
 - cross-implementation verification of P1, P7, P8, P12, DH, and CRL composition;
 - representative continuation of each implementation's PKI by the other.

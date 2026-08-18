@@ -30,6 +30,22 @@ func TestBuildConfig_FlagsOverrideEnv(t *testing.T) {
 	require.Equal(t, "flag-pass", cfg.KeyPassphrase)
 }
 
+func TestBuildConfig_UsesEasyRSAOrganizationalDefaults(t *testing.T) {
+	opts := defaultCLIOptions()
+	opts.dnMode = "org"
+
+	cfg, err := buildConfig(&opts)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"US"}, cfg.SubjTemplate.Country)
+	require.Equal(t, []string{"California"}, cfg.SubjTemplate.Province)
+	require.Equal(t, []string{"San Francisco"}, cfg.SubjTemplate.Locality)
+	require.Equal(t, []string{"Copyleft Certificate Co"}, cfg.SubjTemplate.Organization)
+	require.Equal(t, []string{"My Organizational Unit"}, cfg.SubjTemplate.OrganizationalUnit)
+	require.Len(t, cfg.SubjTemplate.ExtraNames, 1)
+	require.Equal(t, "me@example.net", cfg.SubjTemplate.ExtraNames[0].Value)
+}
+
 func TestBuildConfig_InvalidCurveFails(t *testing.T) {
 	opts := defaultCLIOptions()
 	opts.curve = "wat"

@@ -125,7 +125,7 @@ func openPKI(opts *cliOptions, mutate func(*pki.Config)) (*pki.PKI, pki.Config, 
 }
 
 func buildConfig(opts *cliOptions) (pki.Config, error) {
-	cfg := pki.LoadConfigFromEnv(pki.Config{})
+	cfg := pki.LoadConfigFromEnv(pki.Config{SubjTemplate: easyRSADefaultSubject()})
 
 	if opts.algo != "" {
 		algo, ok := parseEasyRSAAlgo(opts.algo)
@@ -184,6 +184,16 @@ func buildConfig(opts *cliOptions) (pki.Config, error) {
 		cfg.SubjTemplate = setEmailAddress(cfg.SubjTemplate, strings.TrimSpace(opts.reqEmail))
 	}
 	return cfg, nil
+}
+
+func easyRSADefaultSubject() pkix.Name {
+	return setEmailAddress(pkix.Name{
+		Country:            []string{"US"},
+		Province:           []string{"California"},
+		Locality:           []string{"San Francisco"},
+		Organization:       []string{"Copyleft Certificate Co"},
+		OrganizationalUnit: []string{"My Organizational Unit"},
+	}, "me@example.net")
 }
 
 func setEmailAddress(name pkix.Name, email string) pkix.Name {
