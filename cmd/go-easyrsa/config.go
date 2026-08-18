@@ -124,6 +124,15 @@ func openPKI(opts *cliOptions, mutate func(*pki.Config)) (*pki.PKI, pki.Config, 
 	return pk, cfg, err
 }
 
+func openPKIReadOnly(opts *cliOptions) (*pki.PKI, pki.Config, error) {
+	cfg, err := buildConfig(opts)
+	if err != nil {
+		return nil, pki.Config{}, err
+	}
+	pk, err := pki.OpenWithFS(opts.pkiDir, cfg)
+	return pk, cfg, err
+}
+
 func buildConfig(opts *cliOptions) (pki.Config, error) {
 	cfg := pki.LoadConfigFromEnv(pki.Config{SubjTemplate: easyRSADefaultSubject()})
 

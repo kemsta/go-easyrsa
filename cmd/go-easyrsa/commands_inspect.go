@@ -20,7 +20,7 @@ func newShowCertCmd(opts *cliOptions) *cobra.Command {
 			if _, err := parseCommandOpts(args[1:], "full"); err != nil {
 				return err
 			}
-			pk, _, err := openPKI(opts, nil)
+			pk, _, err := openPKIReadOnly(opts)
 			if err != nil {
 				return err
 			}
@@ -42,7 +42,7 @@ func newShowCACmd(opts *cliOptions) *cobra.Command {
 			if _, err := parseCommandOpts(args, "full"); err != nil {
 				return err
 			}
-			pk, _, err := openPKI(opts, nil)
+			pk, _, err := openPKIReadOnly(opts)
 			if err != nil {
 				return err
 			}
@@ -61,7 +61,7 @@ func newShowCRLCmd(opts *cliOptions) *cobra.Command {
 		Short: "Show the current CRL",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pk, _, err := openPKI(opts, nil)
+			pk, _, err := openPKIReadOnly(opts)
 			if err != nil {
 				return err
 			}
@@ -81,7 +81,7 @@ func newShowExpireCmd(opts *cliOptions) *cobra.Command {
 		Short: "Show certificates expiring within the configured window",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pk, cfg, err := openPKI(opts, nil)
+			pk, cfg, err := openPKIReadOnly(opts)
 			if err != nil {
 				return err
 			}
@@ -115,7 +115,7 @@ func newShowRevokeCmd(opts *cliOptions) *cobra.Command {
 		Short: "Show revoked certificates",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pk, _, err := openPKI(opts, nil)
+			pk, _, err := openPKIReadOnly(opts)
 			if err != nil {
 				return err
 			}
@@ -140,7 +140,7 @@ func newVerifyCertCmd(opts *cliOptions) *cobra.Command {
 			if _, err := parseCommandOpts(args[1:], "batch"); err != nil {
 				return err
 			}
-			pk, _, err := openPKI(opts, nil)
+			pk, _, err := openPKIReadOnly(opts)
 			if err != nil {
 				return err
 			}
