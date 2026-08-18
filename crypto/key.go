@@ -10,6 +10,9 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"fmt"
+
+	"github.com/youmark/pkcs8"
 )
 
 // GenKey generates a private key. algo must be "rsa", "ecdsa", or "ed25519".
@@ -32,38 +35,55 @@ func GenKey(algo string, keySize int, curve elliptic.Curve) (crypto.PrivateKey, 
 	}
 }
 
-// MarshalPrivateKey marshals a private key to PKCS8 PEM.
-// If passphrase is non-empty, the PEM block is encrypted with AES-256-CBC.
-// If passphrase is empty, produces plaintext PKCS8.
+var encryptedPKCS8Opts = &pkcs8.Opts{
+	Cipher: pkcs8.AES256CBC,
+	KDFOpts: pkcs8.PBKDF2Opts{
+		SaltSize:       16,
+		IterationCount: 100_000,
+		HMACHash:       crypto.SHA256,
+	},
+}
+
+// MarshalPrivateKey marshals a private key to PKCS#8 PEM.
+// If passphrase is non-empty, it produces a PBES2-encrypted
+// EncryptedPrivateKeyInfo. Otherwise it produces plaintext PrivateKeyInfo.
 func MarshalPrivateKey(key crypto.PrivateKey, passphrase string) ([]byte, error) {
+	if passphrase != "" {
+		der, err := pkcs8.MarshalPrivateKey(key, []byte(passphrase), encryptedPKCS8Opts)
+		if err != nil {
+			return nil, err
+		}
+		return pem.EncodeToMemory(&pem.Block{Type: "ENCRYPTED PRIVATE KEY", Bytes: der}), nil
+	}
 	der, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
 		return nil, err
 	}
-	if passphrase != "" {
-		block, err := x509.EncryptPEMBlock(rand.Reader, "PRIVATE KEY", der, []byte(passphrase), x509.PEMCipherAES256) //nolint:staticcheck // deprecated but needed for PEM-level encrypted key compatibility
-		if err != nil {
-			return nil, err
-		}
-		return pem.EncodeToMemory(block), nil
-	}
-	return pem.EncodeToMemory(&pem.Block{
-		Type:  "PRIVATE KEY",
-		Bytes: der,
-	}), nil
+	return pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), nil
 }
 
-// UnmarshalPrivateKey parses a PKCS8 PEM private key, handling both encrypted
-// (DEK-Info headers) and unencrypted forms. Also falls back to PKCS1 and EC formats.
+// UnmarshalPrivateKey parses PKCS#8 PEM, including standard PBES2 and legacy
+// DEK-Info encryption. It also falls back to PKCS#1 and SEC1 EC formats.
 func UnmarshalPrivateKey(pemBytes []byte, passphrase string) (crypto.PrivateKey, error) {
 	block, _ := pem.Decode(pemBytes)
 	if block == nil {
 		return nil, errors.New("pkicrypto: failed to decode PEM block")
 	}
+	if block.Type == "ENCRYPTED PRIVATE KEY" {
+		if passphrase == "" {
+			return nil, errors.New("pkicrypto: passphrase required for encrypted PKCS#8 key")
+		}
+		key, err := parseEncryptedPKCS8(block.Bytes, passphrase)
+		if err != nil {
+			return nil, fmt.Errorf("pkicrypto: decrypt PKCS#8 key: %w", err)
+		}
+		return key, nil
+	}
+
 	var der []byte
-	if x509.IsEncryptedPEMBlock(block) { //nolint:staticcheck // deprecated but needed for PEM-level encrypted key compatibility
+	if x509.IsEncryptedPEMBlock(block) { //nolint:staticcheck // legacy PEM compatibility
 		var err error
-		der, err = x509.DecryptPEMBlock(block, []byte(passphrase)) //nolint:staticcheck // deprecated but needed for PEM-level encrypted key compatibility
+		der, err = x509.DecryptPEMBlock(block, []byte(passphrase)) //nolint:staticcheck // legacy PEM compatibility
 		if err != nil {
 			return nil, err
 		}
@@ -80,6 +100,16 @@ func UnmarshalPrivateKey(pemBytes []byte, passphrase string) (crypto.PrivateKey,
 		return key, nil
 	}
 	return nil, errors.New("pkicrypto: failed to parse private key")
+}
+
+func parseEncryptedPKCS8(der []byte, passphrase string) (key crypto.PrivateKey, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			key = nil
+			err = fmt.Errorf("invalid encrypted PKCS#8 data: %v", recovered)
+		}
+	}()
+	return pkcs8.ParsePKCS8PrivateKey(der, []byte(passphrase))
 }
 
 // PublicKey extracts the public key from a private key.

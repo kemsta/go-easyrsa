@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	pkicrypto "github.com/kemsta/go-easyrsa/v2/crypto"
 	"github.com/kemsta/go-easyrsa/v2/pki"
 )
 
@@ -542,7 +543,9 @@ func TestCLI_ExplicitNoPassFalseOverridesEnv(t *testing.T) {
 	require.NoError(t, err)
 	block, _ := pem.Decode(keyPEM)
 	require.NotNil(t, block)
-	require.True(t, x509.IsEncryptedPEMBlock(block)) //nolint:staticcheck // compatibility assertion
+	require.Equal(t, "ENCRYPTED PRIVATE KEY", block.Type)
+	_, err = pkicrypto.UnmarshalPrivateKey(keyPEM, "secret123")
+	require.NoError(t, err)
 }
 
 func TestCLI_UsesEnvNoPassForPlaintextKeys(t *testing.T) {

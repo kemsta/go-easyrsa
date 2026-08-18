@@ -136,7 +136,8 @@ until their upstream scenarios pass:
 
 Malformed boolean values do not silently enable `EASYRSA_NO_PASS`. Invalid
 numeric values are ignored by the non-failing library overlay and rejected by
-the CLI before it creates or mutates a PKI.
+the CLI before it creates or mutates a PKI. New encrypted private keys use
+standard PBES2/PKCS#8 and legacy DEK-Info encrypted PEM remains readable.
 
 The following result-affecting variables are currently ❌:
 
@@ -172,7 +173,7 @@ defects. Work still required includes:
 - semantic comparison of entity identity, status, serial strategy, and time;
 - Easy-RSA defaults and subject-email behavior;
 - renew/revoke lifecycle and filesystem layout;
-- standard encrypted PKCS#8 and passphrase interoperability;
+- cross-implementation verification of encrypted PKCS#8 and passphrase flows;
 - cross-implementation verification of P1, P7, P8, P12, DH, and CRL composition;
 - representative continuation of each implementation's PKI by the other.
 

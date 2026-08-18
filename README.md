@@ -48,7 +48,7 @@ For legacy v1 filesystem layout support, see [docs/legacy.md](docs/legacy.md).
 - **Core Easy-RSA operations** - typed Go methods for CA, certificate, CRL, inspection, and export workflows
 - **Tested interoperability** - open and create Easy-RSA/OpenSSL PKIs for the currently covered workflows
 - **Key algorithms** - RSA (2048/3072/4096), ECDSA (P-256/P-384/P-521), Ed25519
-- **Key encryption** - AES-256-CBC passphrase protection for private keys
+- **Key encryption** - OpenSSL-compatible PBES2/PKCS#8 using AES-256-CBC and PBKDF2-HMAC-SHA256 (100,000 iterations), with legacy encrypted PEM read compatibility
 - **Export formats** - PKCS#12, PKCS#7, PKCS#8, PKCS#1, Diffie-Hellman parameters
 - **Pluggable storage** - 5 clean interfaces (`KeyStorage`, `CSRStorage`, `IndexDB`, `SerialProvider`, `CRLHolder`); bring your own backend (database, S3, vault) or use the built-in filesystem/in-memory implementations
 - **Crash-safe writes** - atomic file operations (temp → fsync → rename) for index and CRL
