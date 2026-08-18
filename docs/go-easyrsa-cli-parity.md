@@ -97,6 +97,12 @@ operations require either `--passout`/`EASYRSA_PASSOUT` or an explicit
 passwordless choice (`nopass`, `--nopass`, or `EASYRSA_NO_PASS=true`).
 Passphrases loaded from the environment are not displayed as help defaults.
 
+Commands now write artifacts at the upstream PKI-relative paths: `dh.pem`,
+`crl.pem`, `private/NAME.p12`, `issued/NAME.p7b`, `private/NAME.p8`, and
+`private/NAME.p1`. Binary artifacts are not substituted through stdout.
+Private/public artifact modes are `0600`/`0644` on POSIX systems; Windows file
+ACLs retain the platform defaults.
+
 ### Explicitly unsupported
 
 - `rawca` / `EASYRSA_RAW_CA`
@@ -167,7 +173,7 @@ defects. Work still required includes:
 - Easy-RSA defaults and subject-email behavior;
 - renew/revoke lifecycle and filesystem layout;
 - standard encrypted PKCS#8 and passphrase interoperability;
-- P1, P7, P8, P12, DH, and CRL file output and composition;
+- cross-implementation verification of P1, P7, P8, P12, DH, and CRL composition;
 - representative continuation of each implementation's PKI by the other.
 
 A row moves to ✅ only after the corresponding upstream-valid scenario passes

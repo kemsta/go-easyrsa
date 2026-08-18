@@ -6,6 +6,8 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"go.mozilla.org/pkcs7"
@@ -33,7 +35,11 @@ func newExportP12Cmd(opts *cliOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, err = cmd.OutOrStdout().Write(data)
+			path, err := writePKIArtifact(opts.pkiDir, filepath.Join("private", args[0]+".p12"), data, 0o600)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", path)
 			return err
 		},
 	}
@@ -57,7 +63,11 @@ func newExportP7Cmd(opts *cliOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, err = cmd.OutOrStdout().Write(data)
+			path, err := writePKIArtifact(opts.pkiDir, filepath.Join("issued", args[0]+".p7b"), data, 0o644)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", path)
 			return err
 		},
 	}
@@ -86,7 +96,11 @@ func newExportP8Cmd(opts *cliOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, err = cmd.OutOrStdout().Write(data)
+			path, err := writePKIArtifact(opts.pkiDir, filepath.Join("private", args[0]+".p8"), data, 0o600)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", path)
 			return err
 		},
 	}
@@ -110,7 +124,11 @@ func newExportP1Cmd(opts *cliOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, err = cmd.OutOrStdout().Write(data)
+			path, err := writePKIArtifact(opts.pkiDir, filepath.Join("private", args[0]+".p1"), data, 0o600)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", path)
 			return err
 		},
 	}

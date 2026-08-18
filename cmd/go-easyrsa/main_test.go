@@ -198,7 +198,25 @@ func TestCLI_GenDH_UsesEnvKeySize(t *testing.T) {
 
 	out, err := runCLI(t, "gen-dh")
 	require.NoError(t, err, out)
-	require.Equal(t, 256, parseDHParameterBits(t, []byte(out)))
+	dhPEM, err := os.ReadFile(filepath.Join(dir, "dh.pem"))
+	require.NoError(t, err)
+	require.Equal(t, 256, parseDHParameterBits(t, dhPEM))
+}
+
+func TestCLI_GenCRLWritesPKIArtifact(t *testing.T) {
+	dir := t.TempDir()
+
+	out, err := runCLI(t, "--pki-dir", dir, "--nopass", "build-ca")
+	require.NoError(t, err, out)
+	out, err = runCLI(t, "--pki-dir", dir, "gen-crl")
+	require.NoError(t, err, out)
+
+	crlPEM, err := os.ReadFile(filepath.Join(dir, "crl.pem"))
+	require.NoError(t, err)
+	block, _ := pem.Decode(crlPEM)
+	require.NotNil(t, block)
+	_, err = x509.ParseRevocationList(block.Bytes)
+	require.NoError(t, err)
 }
 
 func TestCLI_SignReqCA_AppliesSubCAPathLen(t *testing.T) {
@@ -230,8 +248,10 @@ func TestCLI_ExportP1WithPassOut_ProducesEncryptedRSAPrivateKey(t *testing.T) {
 	require.NoError(t, err, out)
 	out, err = runCLI(t, "--pki-dir", dir, "--passout", "pass:test123", "export-p1", "alice")
 	require.NoError(t, err, out)
+	keyPEM, err := os.ReadFile(filepath.Join(dir, "private", "alice.p1"))
+	require.NoError(t, err)
 
-	block, _ := pem.Decode([]byte(out))
+	block, _ := pem.Decode(keyPEM)
 	require.NotNil(t, block)
 	require.Equal(t, "RSA PRIVATE KEY", block.Type)
 	require.True(t, x509.IsEncryptedPEMBlock(block))           //nolint:staticcheck // compatibility assertion
@@ -688,8 +708,10 @@ func TestCLI_UsesEnvPassInPassOutForExportP1(t *testing.T) {
 	require.NoError(t, err, out)
 	out, err = runCLI(t, "export-p1", "alice")
 	require.NoError(t, err, out)
+	keyPEM, err := os.ReadFile(filepath.Join(dir, "private", "alice.p1"))
+	require.NoError(t, err)
 
-	block, _ := pem.Decode([]byte(out))
+	block, _ := pem.Decode(keyPEM)
 	require.NotNil(t, block)
 	require.Equal(t, "RSA PRIVATE KEY", block.Type)
 	require.True(t, x509.IsEncryptedPEMBlock(block))
@@ -708,8 +730,10 @@ func TestCLI_PassInFlagDecryptsEncryptedKeyForExport(t *testing.T) {
 	require.NoError(t, err, out)
 	out, err = runCLI(t, "--pki-dir", dir, "--passin", "pass:secret123", "export-p1", "alice", "nopass")
 	require.NoError(t, err, out)
+	keyPEM, err := os.ReadFile(filepath.Join(dir, "private", "alice.p1"))
+	require.NoError(t, err)
 
-	block, _ := pem.Decode([]byte(out))
+	block, _ := pem.Decode(keyPEM)
 	require.NotNil(t, block)
 	require.Equal(t, "RSA PRIVATE KEY", block.Type)
 }

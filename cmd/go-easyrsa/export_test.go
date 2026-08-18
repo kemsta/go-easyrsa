@@ -3,6 +3,8 @@ package main
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 
@@ -119,7 +121,8 @@ func TestCLI_ExportP12_NoCAOmitsCACert(t *testing.T) {
 	require.NoError(t, err, out)
 	out, err = runCLI(t, "--pki-dir", dir, "--passout", "pass:exportpass", "export-p12", "alice", "noca")
 	require.NoError(t, err, out)
-	meta := parseLocalP12Meta(t, []byte(out), "exportpass")
+	data := readCLIArtifact(t, dir, "private", "alice.p12")
+	meta := parseLocalP12Meta(t, data, "exportpass")
 	require.Equal(t, 1, meta.KeyBlocks)
 	require.Equal(t, []string{"alice"}, meta.CertCNs)
 }
@@ -132,7 +135,8 @@ func TestCLI_ExportP12_NoKeyProducesTrustStoreOnly(t *testing.T) {
 	require.NoError(t, err, out)
 	out, err = runCLI(t, "--pki-dir", dir, "--passout", "pass:exportpass", "export-p12", "alice", "nokey")
 	require.NoError(t, err, out)
-	certs, err := gopkcs12.DecodeTrustStore([]byte(out), "exportpass")
+	data := readCLIArtifact(t, dir, "private", "alice.p12")
+	certs, err := gopkcs12.DecodeTrustStore(data, "exportpass")
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(certs), 1)
 }
@@ -145,7 +149,8 @@ func TestCLI_ExportP12_LegacyIsParseable(t *testing.T) {
 	require.NoError(t, err, out)
 	out, err = runCLI(t, "--pki-dir", dir, "--passout", "pass:exportpass", "export-p12", "alice", "legacy")
 	require.NoError(t, err, out)
-	meta := parseLocalP12Meta(t, []byte(out), "exportpass")
+	data := readCLIArtifact(t, dir, "private", "alice.p12")
+	meta := parseLocalP12Meta(t, data, "exportpass")
 	require.Equal(t, 1, meta.KeyBlocks)
 	require.Contains(t, meta.CertCNs, "alice")
 }
@@ -169,8 +174,32 @@ func TestCLI_ExportP7_NoCAOmitsCACert(t *testing.T) {
 	require.NoError(t, err, out)
 	out, err = runCLI(t, "--pki-dir", dir, "export-p7", "alice", "noca")
 	require.NoError(t, err, out)
-	certCNs := parseLocalP7CertCNs(t, []byte(out))
+	data := readCLIArtifact(t, dir, "issued", "alice.p7b")
+	certCNs := parseLocalP7CertCNs(t, data)
 	require.Equal(t, []string{"alice"}, certCNs)
+}
+
+func TestCLI_ExportP8WritesPrivateArtifact(t *testing.T) {
+	dir := t.TempDir()
+	out, err := runCLI(t, "--pki-dir", dir, "--nopass", "build-ca")
+	require.NoError(t, err, out)
+	out, err = runCLI(t, "--pki-dir", dir, "--nopass", "build-client-full", "alice")
+	require.NoError(t, err, out)
+	out, err = runCLI(t, "--pki-dir", dir, "--passout=pass:exportpass", "export-p8", "alice")
+	require.NoError(t, err, out)
+
+	data := readCLIArtifact(t, dir, "private", "alice.p8")
+	block, _ := pem.Decode(data)
+	require.NotNil(t, block)
+	require.Contains(t, block.Type, "PRIVATE KEY")
+}
+
+func readCLIArtifact(t *testing.T, dir string, path ...string) []byte {
+	t.Helper()
+	parts := append([]string{dir}, path...)
+	data, err := os.ReadFile(filepath.Join(parts...))
+	require.NoError(t, err)
+	return data
 }
 
 type localP12Meta struct {

@@ -333,7 +333,11 @@ func newGenCRLCmd(opts *cliOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, err = cmd.OutOrStdout().Write(crlPEM)
+			path, err := writePKIArtifact(opts.pkiDir, "crl.pem", crlPEM, 0o644)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", path)
 			return err
 		},
 	}
@@ -357,7 +361,11 @@ func newGenDHCmd(opts *cliOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, err = cmd.OutOrStdout().Write(data)
+			path, err := writePKIArtifact(opts.pkiDir, "dh.pem", data, 0o644)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", path)
 			return err
 		},
 	}
