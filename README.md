@@ -125,7 +125,13 @@ A Cobra-based `go-easyrsa` CLI is available as a separate module at:
 cmd/go-easyrsa
 ```
 
-Build it from that directory:
+Install the latest release:
+
+```bash
+go install github.com/kemsta/go-easyrsa/cmd/go-easyrsa@latest
+```
+
+To build the current checkout instead:
 
 ```bash
 cd cmd/go-easyrsa
