@@ -24,7 +24,9 @@ The library currently provides typed equivalents for these core operations:
 | `revoke-expired` | `RevokeExpired(name, reason)` |
 | `gen-crl` | `GenCRL()` |
 | `gen-dh` | `GenDH(bits)` |
+| `show-req` | `ShowReq(name)` |
 | `show-cert` / `show-ca` | `ShowCert(name)` / `ShowCA()` |
+| `show-eku` | `ShowEKU(name)` |
 | `show-crl` | `ShowCRL()` |
 | `show-expire` | `ShowExpiring(days)` |
 | `show-revoke` | `ShowRevoked()` |
@@ -36,6 +38,7 @@ The library currently provides typed equivalents for these core operations:
 | `export-p8` | `ExportP8(name, password)` |
 | `export-p1` | `ExportP1(name)` |
 | `set-pass` | `SetPass(name, oldPass, newPass)` |
+| `serial` / `check-serial` | `CheckSerial(serial)` |
 
 The filesystem backend follows the current Easy-RSA PKI layout for the operations covered by the interoperability tests.
 
@@ -138,9 +141,9 @@ cd cmd/go-easyrsa
 go build
 ```
 
-The CLI exposes a 28-command core subset whose positive compatibility is
+The CLI exposes a 34-command core subset whose positive compatibility is
 verified against the pinned Easy-RSA v3.2.6 reference in CI. See
-`docs/go-easyrsa-cli-parity.md` for the verified surface and the 16 deferred
+`docs/go-easyrsa-cli-parity.md` for the verified surface and the 10 deferred
 upstream commands; this is not a claim of complete upstream CLI parity.
 
 PKCS#12 `friendlyName` customization (`--usefn`, `nofn`,

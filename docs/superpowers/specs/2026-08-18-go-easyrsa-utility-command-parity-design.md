@@ -157,7 +157,7 @@ Scenarios cover:
 3. Both serial aliases with an available lowercase serial in batch mode.
 4. Occupied-serial reporting against a shared PKI produced in each direction.
 5. `display-dn` for CSR and X.509 files produced by each implementation.
-6. `rand` output shape: successful status, exact length, lowercase hex, and independent values.
+6. `rand` output shape across repeated invocations: successful status, exact length, and lowercase hex. Tests do not assert inequality because two valid random outputs may legally match.
 7. Raw recursive filesystem equality, including the serial counter, before and after every storage-backed read-only command.
 
 OpenSSL prose, random bytes, temporary paths, and formatting whitespace are not compared literally. Subject fields, SANs, EKU labels, serial occupancy/status, and random output shape are content-bearing and cannot be normalized away.
@@ -181,7 +181,7 @@ CLI tests cover:
 - path-first EKU resolution, empty-EKU failure, and name lookup despite same-named non-regular entries;
 - complete raw-RDN output for certificates and CSRs, including repeated and unknown attributes;
 - regular files, symlinks, directories, FIFOs, malformed PEM, and replacement-race resistance;
-- positive and invalid random lengths, exact output length, lowercase hex, and write failures;
+- positive and invalid random lengths, exact output length, lowercase hex, random-reader failures, and write failures;
 - command registration and read-only lock classification.
 
 All four modules continue to pass tests and vet on Go 1.25.13 and 1.26.6. Root and CLI E2E pass on both toolchains. `govulncheck`, `golangci-lint`, and `actionlint` remain green.

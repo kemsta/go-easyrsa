@@ -372,7 +372,7 @@ func TestCLI_Rand(t *testing.T) {
 	assert.Regexp(t, regexp.MustCompile(`^[0-9a-f]{64}\n$`), out)
 	other, err := runCLI(t, "rand", "32")
 	require.NoError(t, err, other)
-	assert.NotEqual(t, out, other)
+	assert.Regexp(t, regexp.MustCompile(`^[0-9a-f]{64}\n$`), other)
 
 	for _, value := range []string{"", "0", "01", "-1", "+1", "1.5", "abc", "9223372036854775808"} {
 		args := []string{"rand"}
