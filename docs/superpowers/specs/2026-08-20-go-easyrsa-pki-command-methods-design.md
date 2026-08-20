@@ -211,6 +211,8 @@ Public artifacts use public visibility and private-key-bearing artifacts use pri
 
 `PKI.Rand(count, writer)` validates a positive signed 64-bit byte count, streams from `crypto/rand.Reader` through lowercase hexadecimal encoding, and appends one newline. It propagates source and destination errors.
 
+`NewWithMemory(config)` constructs a complete in-memory `PKI`. The stateless `display-dn` and `rand` CLI adapters use a transient instance from this constructor, so they do not open, validate, create, or mutate a filesystem PKI merely to call methods on `PKI`.
+
 `PKI.Serial` and `PKI.CheckSerial` return the same deep-copied index information. Batch silence and exit status remain CLI presentation behavior.
 
 ## Storage backend
@@ -229,7 +231,7 @@ Public artifacts use public visibility and private-key-bearing artifacts use pri
 
 The low-level facets remain exported and independently testable. The aggregate exists because a command operation must coordinate several facets under one lock and rollback boundary; it is not a duplicate command API.
 
-`pki.New` accepts a `storage.Backend`. The filesystem, memory, and legacy packages expose backend constructors. `NewWithFS`, `OpenWithFS`, and `NewWithLegacyFSRO` remain convenience constructors.
+`pki.New` accepts a `storage.Backend`. The filesystem, memory, and legacy packages expose backend constructors. `NewWithFS`, `OpenWithFS`, `NewWithMemory`, and `NewWithLegacyFSRO` remain convenience constructors.
 
 The aggregate contract has one access path:
 
