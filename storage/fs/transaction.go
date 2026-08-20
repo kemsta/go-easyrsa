@@ -1250,7 +1250,10 @@ func (j *transactionJournal) restoreOriginal(index int, action journalAction) er
 }
 
 func journalEntriesEqual(left, right journalEntry) bool {
-	if left.Directory != right.Directory || left.Mode != right.Mode {
+	if left.Directory != right.Directory {
+		return false
+	}
+	if runtime.GOOS != "windows" && left.Mode != right.Mode {
 		return false
 	}
 	if left.Directory {
