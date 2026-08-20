@@ -23,6 +23,9 @@ func readRegularPathWith(name string, opener func(string) (*os.File, error)) (da
 	if !pathInfo.Mode().IsRegular() {
 		return nil, false, nil
 	}
+	// Force lazy Windows file IDs to be captured before the opener can race a
+	// replacement into the path.
+	_ = os.SameFile(pathInfo, pathInfo)
 	file, err := opener(name)
 	if err != nil {
 		return nil, false, err

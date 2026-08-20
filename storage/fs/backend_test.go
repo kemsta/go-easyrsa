@@ -111,9 +111,11 @@ func TestBackendArtifactsCopyAndModes(t *testing.T) {
 	}))
 	input[0] = 'X'
 
-	info, err := os.Stat(filepath.Join(pkiDir, "private", "client.p12"))
-	require.NoError(t, err)
-	require.Equal(t, iofs.FileMode(0o600), info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(filepath.Join(pkiDir, "private", "client.p12"))
+		require.NoError(t, err)
+		require.Equal(t, iofs.FileMode(0o600), info.Mode().Perm())
+	}
 	require.NoError(t, backend.View(func(components storage.Components) error {
 		artifact, err := components.Artifacts().GetArtifact("private/client.p12")
 		require.NoError(t, err)

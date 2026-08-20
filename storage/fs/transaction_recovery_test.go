@@ -3,6 +3,7 @@ package fs
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -18,9 +19,11 @@ func TestTransactionShadowRootRemainsPrivate(t *testing.T) {
 	shadow, err := newShadow(pkiDir, true)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(shadow.path) })
-	info, err := os.Stat(shadow.path)
-	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(shadow.path)
+		require.NoError(t, err)
+		require.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+	}
 }
 
 func TestRecoverTransactionsHandlesPreAppliedMarkerCrashWindows(t *testing.T) {
@@ -44,6 +47,7 @@ func TestRecoverTransactionsHandlesPreAppliedMarkerCrashWindows(t *testing.T) {
 		staged, _, err := journal.stageFile(index, []byte("replacement"), 0o600)
 		require.NoError(t, err)
 		require.NoError(t, journal.root.Rename(staged, "index.txt"))
+		closeJournalForCrash(t, journal)
 		require.NoError(t, recoverTransactions(pkiDir))
 		require.Equal(t, []byte("original"), readTestFile(t, indexPath))
 	})
@@ -64,6 +68,7 @@ func TestRecoverTransactionsHandlesPreAppliedMarkerCrashWindows(t *testing.T) {
 		require.NoError(t, journal.writeFile("index.txt", &original, filepath.Join(shadow.path, "index.txt"), desired["index.txt"]))
 		_, _, err = journal.stageRestoration(0, []byte("original"), 0o600)
 		require.NoError(t, err)
+		closeJournalForCrash(t, journal)
 		require.NoError(t, recoverTransactions(pkiDir))
 		require.Equal(t, []byte("original"), readTestFile(t, indexPath))
 	})
@@ -89,6 +94,7 @@ func TestRecoverTransactionsHandlesPreAppliedMarkerCrashWindows(t *testing.T) {
 		journal.manifest.Actions[0].RestoreStage = restorePath
 		require.NoError(t, journal.persist())
 		require.NoError(t, journal.root.WriteFile(restorePath, []byte("partial"), 0o600))
+		closeJournalForCrash(t, journal)
 		require.NoError(t, recoverTransactions(pkiDir))
 		require.Equal(t, []byte("original"), readTestFile(t, indexPath))
 	})
@@ -108,6 +114,7 @@ func TestRecoverTransactionsHandlesPreAppliedMarkerCrashWindows(t *testing.T) {
 		moved, err := journal.prepareMove(index)
 		require.NoError(t, err)
 		require.NoError(t, journal.root.Rename("index.txt", moved))
+		closeJournalForCrash(t, journal)
 		require.NoError(t, recoverTransactions(pkiDir))
 		require.Equal(t, []byte("original"), readTestFile(t, indexPath))
 	})
@@ -125,6 +132,7 @@ func TestRecoverTransactionsHandlesPreAppliedMarkerCrashWindows(t *testing.T) {
 		staged, _, err := journal.stageDirectory(index, 0o755)
 		require.NoError(t, err)
 		require.NoError(t, journal.root.Rename(staged, "added"))
+		closeJournalForCrash(t, journal)
 		require.NoError(t, recoverTransactions(pkiDir))
 		require.NoDirExists(t, filepath.Join(pkiDir, "added"))
 	})
@@ -193,6 +201,7 @@ func TestRecoverTransactionsRollsBackPreparedJournal(t *testing.T) {
 	require.Equal(t, []byte("replacement"), readTestFile(t, indexPath))
 
 	// Simulate process death: do not call rollback, markCommitted, or cleanup.
+	closeJournalForCrash(t, journal)
 	require.NoError(t, recoverTransactions(pkiDir))
 	require.Equal(t, []byte("original"), readTestFile(t, indexPath))
 	require.NoDirExists(t, shadow.path)
@@ -217,6 +226,7 @@ func TestRecoverTransactionsKeepsDurablyCommittedState(t *testing.T) {
 	require.NoError(t, journal.writeFile("index.txt", &original, filepath.Join(shadow.path, "index.txt"), desired["index.txt"]))
 	require.NoError(t, journal.syncParents())
 	require.NoError(t, journal.markCommitted())
+	closeJournalForCrash(t, journal)
 
 	require.NoError(t, recoverTransactions(pkiDir))
 	require.Equal(t, []byte("committed"), readTestFile(t, indexPath))
@@ -241,6 +251,7 @@ func TestRecoverTransactionsPreservesByteIdenticalReplacement(t *testing.T) {
 	original := shadow.base["index.txt"]
 	require.NoError(t, journal.writeFile("index.txt", &original, filepath.Join(shadow.path, "index.txt"), desired["index.txt"]))
 
+	closeJournalForCrash(t, journal)
 	replacement := filepath.Join(pkiDir, "replacement")
 	require.NoError(t, os.WriteFile(replacement, []byte("transaction"), 0o600))
 	require.NoError(t, os.Remove(indexPath))
@@ -270,11 +281,20 @@ func TestRecoverTransactionsPreservesExternalReplacement(t *testing.T) {
 
 	// An uncoordinated writer changes the installed inode in place. Recovery
 	// must detect the content mismatch rather than overwrite it from backup.
+	closeJournalForCrash(t, journal)
 	require.NoError(t, os.WriteFile(indexPath, []byte("external"), 0o600))
 	err = recoverTransactions(pkiDir)
 	require.ErrorIs(t, err, storage.ErrConflict)
 	require.Equal(t, []byte("external"), readTestFile(t, indexPath))
 	require.DirExists(t, journal.path)
+}
+
+func closeJournalForCrash(t *testing.T, journal *transactionJournal) {
+	t.Helper()
+	if journal.root != nil {
+		require.NoError(t, journal.root.Close())
+		journal.root = nil
+	}
 }
 
 func readTestFile(t *testing.T, name string) []byte {

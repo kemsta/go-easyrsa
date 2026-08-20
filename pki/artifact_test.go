@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -189,9 +190,11 @@ func TestExportArtifactsPersistFilesystemPathsAndModes(t *testing.T) {
 			require.NoError(t, err)
 			fullPath := filepath.Join(pkiDir, test.path)
 			require.Equal(t, data, readArtifactFile(t, fullPath))
-			info, err := os.Stat(fullPath)
-			require.NoError(t, err)
-			require.Equal(t, test.mode, info.Mode().Perm())
+			if runtime.GOOS != "windows" {
+				info, err := os.Stat(fullPath)
+				require.NoError(t, err)
+				require.Equal(t, test.mode, info.Mode().Perm())
+			}
 		})
 	}
 }
@@ -219,10 +222,12 @@ func TestGeneratedCRLAndDHPersistFilesystemArtifacts(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, dh, readArtifactFile(t, filepath.Join(pkiDir, "dh.pem")))
 
-	for _, name := range []string{"crl.pem", "crl.der", "dh.pem"} {
-		info, err := os.Stat(filepath.Join(pkiDir, name))
-		require.NoError(t, err)
-		require.Equal(t, os.FileMode(0o644), info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		for _, name := range []string{"crl.pem", "crl.der", "dh.pem"} {
+			info, err := os.Stat(filepath.Join(pkiDir, name))
+			require.NoError(t, err)
+			require.Equal(t, os.FileMode(0o644), info.Mode().Perm())
+		}
 	}
 }
 
