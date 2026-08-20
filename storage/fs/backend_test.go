@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -215,6 +216,28 @@ func TestBackendRejectsPathEscape(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.NoFileExists(t, victim)
+}
+
+func TestBackendUpdateRejectsSymlinkedPKIFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating symlinks requires additional Windows privileges")
+	}
+	t.Parallel()
+
+	pkiDir := filepath.Join(t.TempDir(), "pki")
+	backend := fsstore.NewBackend(pkiDir, "ca")
+	require.NoError(t, backend.EnsureLayout())
+	outside := filepath.Join(t.TempDir(), "outside.crt")
+	require.NoError(t, os.WriteFile(outside, []byte("outside"), 0o600))
+	require.NoError(t, os.Symlink(outside, filepath.Join(pkiDir, "issued", "client.crt")))
+	called := false
+	err := backend.Update(func(storage.Components) error {
+		called = true
+		return nil
+	})
+	require.Error(t, err)
+	require.False(t, called)
+	require.Equal(t, []byte("outside"), mustReadFile(t, outside))
 }
 
 func TestBackendDetectsUncoordinatedLiveChange(t *testing.T) {

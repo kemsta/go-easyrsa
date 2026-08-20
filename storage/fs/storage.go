@@ -163,11 +163,20 @@ func (ks *KeyStorage) getFromRevoked(name string) (*cert.Pair, error) {
 			continue
 		}
 		c, err := x509.ParseCertificate(block.Bytes)
-		if err != nil || c.Subject.CommonName != name {
+		if err != nil {
+			continue
+		}
+		serialHex := strings.TrimSuffix(e.Name(), ".crt")
+		storedName := c.Subject.CommonName
+		if sidecar, err := os.ReadFile(fsJoin(ks.pkiDir, "certs_by_serial", serialHex+".name")); err == nil {
+			if value := strings.TrimSpace(string(sidecar)); value != "" {
+				storedName = value
+			}
+		}
+		if storedName != name {
 			continue
 		}
 		pair := &cert.Pair{Name: name, CertPEM: data}
-		serialHex := strings.TrimSuffix(e.Name(), ".crt")
 		keyPath := fsJoin(ks.pkiDir, "revoked", "private_by_serial", serialHex+".key")
 		if keyPEM, err := os.ReadFile(keyPath); err == nil {
 			pair.KeyPEM = keyPEM
@@ -225,10 +234,48 @@ func (ks *KeyStorage) GetBySerial(serial *big.Int) (*cert.Pair, error) {
 		return nil, fmt.Errorf("storage/fs: invalid stored entity name: %w", err)
 	}
 	pair := &cert.Pair{Name: name, CertPEM: certPEM}
-	if keyPEM, err := os.ReadFile(ks.keyPath(name)); err == nil {
+	if keyPEM, err := ks.keyForSerial(name, serial); err == nil {
 		pair.KeyPEM = keyPEM
 	}
 	return pair, nil
+}
+
+func (ks *KeyStorage) keyForSerial(name string, serial *big.Int) ([]byte, error) {
+	_, currentErr := os.Stat(ks.certPath(name))
+	if currentErr == nil {
+		currentPEM, err := os.ReadFile(ks.certPath(name))
+		if err == nil {
+			if currentSerial, parseErr := serialFromCertificatePEM(currentPEM); parseErr == nil && currentSerial.Cmp(serial) == 0 {
+				return os.ReadFile(ks.keyPath(name))
+			}
+		}
+	}
+	if currentErr != nil && !os.IsNotExist(currentErr) {
+		return nil, currentErr
+	}
+	if archived, err := os.ReadFile(fsJoin(ks.pkiDir, "revoked", "private_by_serial", hexSerial(serial)+".key")); err == nil {
+		return archived, nil
+	}
+	if os.IsNotExist(currentErr) {
+		if expiredPEM, err := os.ReadFile(fsJoin(ks.pkiDir, "expired", name+".crt")); err == nil {
+			if expiredSerial, parseErr := serialFromCertificatePEM(expiredPEM); parseErr == nil && expiredSerial.Cmp(serial) == 0 {
+				return os.ReadFile(ks.keyPath(name))
+			}
+		}
+	}
+	return nil, storage.ErrNotFound
+}
+
+func serialFromCertificatePEM(data []byte) (*big.Int, error) {
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, errors.New("no PEM block")
+	}
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	return certificate.SerialNumber, nil
 }
 
 func (ks *KeyStorage) GetPrivateKey(name string) ([]byte, error) {
@@ -251,6 +298,7 @@ func (ks *KeyStorage) DeleteByName(name string) error {
 	if serial, err := pair.Serial(); err == nil {
 		_ = os.Remove(ks.serialPath(serial))      // best-effort
 		_ = os.Remove(ks.nameSidecarPath(serial)) // best-effort
+		_ = os.Remove(fsJoin(ks.pkiDir, "certs_by_serial", hexSerial(serial)+".revoked-assets"))
 	}
 	var firstErr error
 	if err := os.Remove(ks.certPath(name)); err != nil && !os.IsNotExist(err) {
@@ -272,6 +320,7 @@ func (ks *KeyStorage) DeleteBySerial(serial *big.Int) error {
 		return err
 	}
 	_ = os.Remove(ks.nameSidecarPath(serial)) // best-effort
+	_ = os.Remove(fsJoin(ks.pkiDir, "certs_by_serial", hexSerial(serial)+".revoked-assets"))
 	return nil
 }
 
@@ -298,6 +347,8 @@ func (ks *KeyStorage) CleanOrphans(knownSerials map[string]bool) error {
 				serial = strings.TrimSuffix(name, ".pem")
 			case strings.HasSuffix(name, ".name"):
 				serial = strings.TrimSuffix(name, ".name")
+			case strings.HasSuffix(name, ".revoked-assets"):
+				serial = strings.TrimSuffix(name, ".revoked-assets")
 			default:
 				continue
 			}
@@ -408,7 +459,7 @@ func (ks *KeyStorage) GetAll() ([]*cert.Pair, error) {
 		}
 
 		pair := &cert.Pair{Name: name, CertPEM: certPEM}
-		if keyPEM, err := os.ReadFile(ks.keyPath(name)); err == nil {
+		if keyPEM, err := ks.keyForSerial(name, crt.SerialNumber); err == nil {
 			pair.KeyPEM = keyPEM
 		}
 		pairs = append(pairs, pair)

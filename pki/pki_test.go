@@ -755,43 +755,45 @@ func TestRenew_OldCertNoLongerValidAfterRenew(t *testing.T) {
 // TestRenew_OldCertIndexUpdateFailureIsReturned verifies that Renew propagates
 // the index.Update failure for the old cert's serial.
 func TestRenew_OldCertIndexUpdateFailureIsReturned(t *testing.T) {
-	ks, cs, idx, sp, crl := memory.New()
-	goodP := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+	backend := memory.NewBackend()
+	goodP, err := pki.New(pki.Config{NoPass: true}, backend)
+	require.NoError(t, err)
 	buildTestCA(t, goodP)
-	_, err := goodP.BuildClientFull("client1")
+	original, err := goodP.BuildClientFull("client1")
+	require.NoError(t, err)
+	originalSerial, err := original.Serial()
 	require.NoError(t, err)
 
-	failIdx := &errUpdateIndexDB{inner: idx, errOnUpdate: errDiskFull}
-	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, failIdx, sp, crl)
-
+	p, err := pki.New(pki.Config{NoPass: true}, &indexUpdateFailureBackend{Backend: backend, err: errDiskFull})
+	require.NoError(t, err)
 	_, err = p.Renew("client1")
-	assert.Error(t, err,
-		"Renew must propagate the index.Update failure for the old cert's serial; "+
-			"silencing it with `_ =` leaves the old cert as StatusValid and returns "+
-			"a misleadingly successful result to the caller")
+	require.ErrorIs(t, err, errDiskFull)
+
+	current, err := goodP.ShowCert("client1")
+	require.NoError(t, err)
+	currentSerial, err := current.Serial()
+	require.NoError(t, err)
+	require.Zero(t, currentSerial.Cmp(originalSerial), "failed renewal must restore the issued certificate")
 }
 
-// TestRenew_NoCertAccumulationInMemoryStorage verifies that repeated Renew calls
-// do not accumulate stale cert pairs in memory storage.
-func TestRenew_NoCertAccumulationInMemoryStorage(t *testing.T) {
-	ks, cs, idx, sp, crl := memory.New()
-	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+func TestRenewPreservesHistoryAndRejectsOccupiedRenewalSlot(t *testing.T) {
+	p := newTestPKI(pki.Config{NoPass: true})
 	buildTestCA(t, p)
-
-	_, err := p.BuildClientFull("client1")
+	original, err := p.BuildClientFull("client1")
+	require.NoError(t, err)
+	originalSerial, err := original.Serial()
 	require.NoError(t, err)
 
-	for i := 0; i < 3; i++ {
-		_, err = p.Renew("client1")
-		require.NoError(t, err)
-	}
-
-	all, err := ks.GetAll()
+	renewed, err := p.Renew("client1")
 	require.NoError(t, err)
+	renewedSerial, err := renewed.Serial()
+	require.NoError(t, err)
+	require.NotZero(t, originalSerial.Cmp(renewedSerial))
+	_, err = p.Renew("client1")
+	require.ErrorIs(t, err, storage.ErrConflict)
 
-	assert.Len(t, all, 2,
-		"GetAll should return exactly 2 entries (CA + current client1); "+
-			"extra entries are stale cert pairs that accumulate in memory after each Renew")
+	pairs := collectPairs(t, p)
+	require.Len(t, pairs, 3, "CA, archived original, and current replacement must remain addressable")
 }
 
 // --- ExpireCert ---
@@ -916,6 +918,15 @@ func TestRevoke_Basic(t *testing.T) {
 	serial, _ := pair.Serial()
 	revoked, err := p.IsRevoked(serial)
 	require.NoError(t, err)
+	assert.False(t, revoked, "command-equivalent revoke must not generate a CRL")
+	entry, err := p.CheckSerial(serial)
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+	assert.Equal(t, storage.StatusRevoked, entry.Status)
+	_, err = p.GenCRL()
+	require.NoError(t, err)
+	revoked, err = p.IsRevoked(serial)
+	require.NoError(t, err)
 	assert.True(t, revoked)
 }
 
@@ -927,42 +938,42 @@ func TestRevoke_NotFound(t *testing.T) {
 }
 
 func TestRevoke_IndexNotFound(t *testing.T) {
-	ks, cs, idx, sp, crl := memory.New()
-	errIdx := &errUpdateIndexDB{inner: idx, errOnUpdate: storage.ErrNotFound}
-	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, errIdx, sp, crl)
-
-	buildTestCA(t, p)
-	_, err := p.BuildClientFull("client1")
+	backend := memory.NewBackend()
+	goodP, err := pki.New(pki.Config{NoPass: true}, backend)
+	require.NoError(t, err)
+	buildTestCA(t, goodP)
+	_, err = goodP.BuildClientFull("client1")
+	require.NoError(t, err)
+	p, err := pki.New(pki.Config{NoPass: true}, &indexUpdateFailureBackend{Backend: backend, err: storage.ErrNotFound})
 	require.NoError(t, err)
 
 	err = p.Revoke("client1", cert.ReasonUnspecified)
-	assert.Error(t, err)
+	require.ErrorIs(t, err, storage.ErrNotFound)
+	_, err = goodP.ShowCert("client1")
+	require.NoError(t, err, "failed revoke must restore the issued certificate")
 }
 
 // TestRevoke_DoesNotUpdateCRLWhenIndexUpdateFails verifies that if index.Update
 // fails during Revoke, GenCRL is NOT called and the CRL remains untouched.
 func TestRevoke_DoesNotUpdateCRLWhenIndexUpdateFails(t *testing.T) {
-	ks, cs, idx, sp, crl := memory.New()
-	errIdx := &errUpdateIndexDB{inner: idx, errOnUpdate: errors.New("index: disk full")}
-	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, errIdx, sp, crl)
-
-	buildTestCA(t, p)
-	_, err := p.BuildClientFull("client1")
+	backend := memory.NewBackend()
+	goodP, err := pki.New(pki.Config{NoPass: true}, backend)
+	require.NoError(t, err)
+	buildTestCA(t, goodP)
+	_, err = goodP.BuildClientFull("client1")
+	require.NoError(t, err)
+	_, err = goodP.GenCRL()
+	require.NoError(t, err)
+	crlBefore, err := goodP.ShowCRL()
 	require.NoError(t, err)
 
-	crlBefore, err := crl.Get()
+	updateErr := errors.New("index: disk full")
+	p, err := pki.New(pki.Config{NoPass: true}, &indexUpdateFailureBackend{Backend: backend, err: updateErr})
 	require.NoError(t, err)
-
-	revokeErr := p.Revoke("client1", cert.ReasonUnspecified)
-	require.Error(t, revokeErr, "Revoke must return an error when index.Update fails")
-
-	crlAfter, err := crl.Get()
+	require.ErrorIs(t, p.Revoke("client1", cert.ReasonUnspecified), updateErr)
+	crlAfter, err := goodP.ShowCRL()
 	require.NoError(t, err)
-
-	assert.Equal(t, crlBefore.Number, crlAfter.Number,
-		"CRL number advanced from %v to %v after a failed Revoke: "+
-			"GenCRL must not be called when index.Update returns an error",
-		crlBefore.Number, crlAfter.Number)
+	require.Equal(t, crlBefore.Raw, crlAfter.Raw)
 }
 
 // --- RevokeBySerial ---
@@ -993,7 +1004,7 @@ func TestRevokeExpired_NoExpired(t *testing.T) {
 	require.NoError(t, err)
 
 	err = p.RevokeExpired("client1", cert.ReasonCessationOfOperation)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, storage.ErrNotFound)
 }
 
 // TestRevokeExpired_NameVsCNMismatchInOrgMode verifies that RevokeExpired
@@ -1018,7 +1029,7 @@ func TestRevokeExpired_NameVsCNMismatchInOrgMode(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	require.NoError(t, p.ExpireCert("server1"))
+	require.NoError(t, p.Expire("server1"))
 
 	require.NoError(t, p.RevokeExpired("server1", cert.ReasonCessationOfOperation))
 
@@ -1146,10 +1157,9 @@ func TestShowRevoked_StorageGap(t *testing.T) {
 	pair, err := p.BuildClientFull("client1")
 	require.NoError(t, err)
 
-	err = p.Revoke("client1", cert.ReasonUnspecified)
-	require.NoError(t, err)
-
 	serial, err := pair.Serial()
+	require.NoError(t, err)
+	err = p.RevokeBySerial(serial, cert.ReasonUnspecified)
 	require.NoError(t, err)
 
 	// Remove the cert from storage so GetBySerial fails.
@@ -1185,6 +1195,8 @@ func TestVerifyCert_Revoked(t *testing.T) {
 
 	err = p.Revoke("client1", cert.ReasonUnspecified)
 	require.NoError(t, err)
+	_, err = p.GenCRL()
+	require.NoError(t, err)
 
 	err = p.VerifyCert("client1")
 	require.Error(t, err)
@@ -1213,10 +1225,12 @@ func TestVerifyCert_CRLSignatureIsNotVerified(t *testing.T) {
 	p1 := mustNewPKI(t, pki.Config{NoPass: true}, ks1, cs1, idx1, sp1, crl1)
 	buildTestCA(t, p1)
 
-	_, err := p1.BuildClientFull("client1")
+	pair, err := p1.BuildClientFull("client1")
+	require.NoError(t, err)
+	serial, err := pair.Serial()
 	require.NoError(t, err)
 
-	err = p1.Revoke("client1", cert.ReasonUnspecified)
+	err = p1.RevokeBySerial(serial, cert.ReasonUnspecified)
 	require.NoError(t, err)
 
 	err = p1.VerifyCert("client1")

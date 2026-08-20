@@ -22,6 +22,26 @@ func (b *indexFailureBackend) Update(fn func(storage.Components) error) error {
 	})
 }
 
+type indexUpdateFailureBackend struct {
+	storage.Backend
+	err error
+}
+
+func (b *indexUpdateFailureBackend) Update(fn func(storage.Components) error) error {
+	return b.Backend.Update(func(components storage.Components) error {
+		return fn(indexUpdateFailureComponents{Components: components, err: b.err})
+	})
+}
+
+type indexUpdateFailureComponents struct {
+	storage.Components
+	err error
+}
+
+func (c indexUpdateFailureComponents) Index() storage.IndexDB {
+	return &errUpdateIndexDB{inner: c.Components.Index(), errOnUpdate: c.err}
+}
+
 type indexFailureComponents struct {
 	storage.Components
 	err error

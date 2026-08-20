@@ -55,6 +55,16 @@ func (s readOnlyKeyStorage) GetPrivateKey(name string) ([]byte, error) {
 	return s.reader.GetPrivateKey(name)
 }
 func (s readOnlyKeyStorage) GetAll() ([]*cert.Pair, error) { return s.reader.GetAll() }
+func (s readOnlyKeyStorage) CurrentCertificates() ([]CurrentCertificate, error) {
+	store, ok := s.reader.(CurrentCertificateStore)
+	if !ok {
+		return nil, ErrReadOnly
+	}
+	return store.CurrentCertificates()
+}
+func (s readOnlyKeyStorage) ReplaceCurrentCertificates([]CurrentCertificate) error {
+	return ErrReadOnly
+}
 func (s readOnlyKeyStorage) ExportPairs(yield func(*cert.Pair) error) error {
 	if exporter, ok := s.reader.(PairExporter); ok {
 		return exporter.ExportPairs(yield)
@@ -114,8 +124,8 @@ func (s readOnlyArtifactStorage) GetArtifact(name string) (Artifact, error) {
 
 type readOnlyLifecycleStorage struct{ reader LifecycleStorage }
 
-func (s readOnlyLifecycleStorage) MoveIssuedToExpired(string) error { return ErrReadOnly }
-func (s readOnlyLifecycleStorage) MoveIssuedToRenewed(string) error { return ErrReadOnly }
+func (s readOnlyLifecycleStorage) MoveIssuedToExpired(string, *big.Int) error { return ErrReadOnly }
+func (s readOnlyLifecycleStorage) MoveIssuedToRenewed(string, *big.Int) error { return ErrReadOnly }
 func (s readOnlyLifecycleStorage) MoveIssuedToRevoked(string, *big.Int) error {
 	return ErrReadOnly
 }
@@ -125,11 +135,19 @@ func (s readOnlyLifecycleStorage) MoveExpiredToRevoked(string, *big.Int) error {
 func (s readOnlyLifecycleStorage) MoveRenewedToRevoked(string, *big.Int) error {
 	return ErrReadOnly
 }
+func (s readOnlyLifecycleStorage) GetExpiredCertificate(name string) ([]byte, error) {
+	return s.reader.GetExpiredCertificate(name)
+}
 func (s readOnlyLifecycleStorage) GetRenewedCertificate(name string) ([]byte, error) {
 	return s.reader.GetRenewedCertificate(name)
 }
+func (s readOnlyLifecycleStorage) ExportState() (LifecycleState, error) {
+	return s.reader.ExportState()
+}
+func (s readOnlyLifecycleStorage) ReplaceState(LifecycleState) error { return ErrReadOnly }
 
 var (
-	_ Components   = (*readOnlyComponents)(nil)
-	_ PairExporter = readOnlyKeyStorage{}
+	_ Components              = (*readOnlyComponents)(nil)
+	_ PairExporter            = readOnlyKeyStorage{}
+	_ CurrentCertificateStore = readOnlyKeyStorage{}
 )

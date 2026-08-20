@@ -19,8 +19,8 @@ func NewLifecycleStorage(pkiDir string) *LifecycleStorage {
 	return &LifecycleStorage{pkiDir: pkiDir}
 }
 
-func (l *LifecycleStorage) MoveIssuedToExpired(name string) error {
-	if err := storage.ValidateEntityName(name); err != nil {
+func (l *LifecycleStorage) MoveIssuedToExpired(name string, serial *big.Int) error {
+	if err := l.recordEntityName(name, serial); err != nil {
 		return err
 	}
 	return l.move([]lifecycleFile{{
@@ -29,8 +29,8 @@ func (l *LifecycleStorage) MoveIssuedToExpired(name string) error {
 	}})
 }
 
-func (l *LifecycleStorage) MoveIssuedToRenewed(name string) error {
-	if err := storage.ValidateEntityName(name); err != nil {
+func (l *LifecycleStorage) MoveIssuedToRenewed(name string, serial *big.Int) error {
+	if err := l.recordEntityName(name, serial); err != nil {
 		return err
 	}
 	return l.move([]lifecycleFile{{
@@ -47,6 +47,12 @@ func (l *LifecycleStorage) MoveIssuedToRevoked(name string, serial *big.Int) err
 		return err
 	}
 	hexSerial := storage.HexSerial(serial)
+	if err := l.recordEntityName(name, serial); err != nil {
+		return err
+	}
+	if err := writeFile(filepath.Join(l.pkiDir, "certs_by_serial", hexSerial+".revoked-assets"), []byte("issued")); err != nil {
+		return err
+	}
 	return l.move([]lifecycleFile{
 		{
 			source:      filepath.Join("issued", name+".crt"),
@@ -69,7 +75,7 @@ func (l *LifecycleStorage) MoveExpiredToRevoked(name string, serial *big.Int) er
 	if err := storage.ValidateEntityName(name); err != nil {
 		return err
 	}
-	if err := storage.ValidateSerial(serial); err != nil {
+	if err := l.recordEntityName(name, serial); err != nil {
 		return err
 	}
 	return l.move([]lifecycleFile{{
@@ -79,16 +85,30 @@ func (l *LifecycleStorage) MoveExpiredToRevoked(name string, serial *big.Int) er
 }
 
 func (l *LifecycleStorage) MoveRenewedToRevoked(name string, serial *big.Int) error {
-	if err := storage.ValidateEntityName(name); err != nil {
-		return err
-	}
-	if err := storage.ValidateSerial(serial); err != nil {
+	if err := l.recordEntityName(name, serial); err != nil {
 		return err
 	}
 	return l.move([]lifecycleFile{{
 		source:      filepath.Join("renewed", "issued", name+".crt"),
 		destination: filepath.Join("revoked", "certs_by_serial", storage.HexSerial(serial)+".crt"),
 	}})
+}
+
+func (l *LifecycleStorage) recordEntityName(name string, serial *big.Int) error {
+	if err := storage.ValidateEntityName(name); err != nil {
+		return err
+	}
+	if err := storage.ValidateSerial(serial); err != nil {
+		return err
+	}
+	return writeFile(filepath.Join(l.pkiDir, "certs_by_serial", storage.HexSerial(serial)+".name"), []byte(name))
+}
+
+func (l *LifecycleStorage) GetExpiredCertificate(name string) ([]byte, error) {
+	if err := storage.ValidateEntityName(name); err != nil {
+		return nil, err
+	}
+	return readLifecycleFile(filepath.Join(l.pkiDir, "expired", name+".crt"))
 }
 
 func (l *LifecycleStorage) GetRenewedCertificate(name string) ([]byte, error) {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/kemsta/go-easyrsa/v2/cert"
 	"github.com/kemsta/go-easyrsa/v2/storage"
 )
 
@@ -82,6 +83,71 @@ func RunWritableBackend(t *testing.T, factory WritableBackendFactory) {
 			entries, err := components.Index().Query(storage.IndexFilter{})
 			require.NoError(t, err)
 			require.Empty(t, entries)
+			return nil
+		}))
+	})
+
+	t.Run("lifecycle_locations", func(t *testing.T) {
+		backend := factory(t)
+		require.NoError(t, backend.EnsureLayout())
+		require.NoError(t, backend.Update(func(components storage.Components) error {
+			if err := components.Keys().Put(&cert.Pair{Name: "expired", CertPEM: []byte("expired-cert"), KeyPEM: []byte("key")}); err != nil {
+				return err
+			}
+			if err := components.CSRs().PutCSR("expired", []byte("request")); err != nil {
+				return err
+			}
+			return components.Lifecycle().MoveIssuedToExpired("expired", big.NewInt(7))
+		}))
+		require.NoError(t, backend.View(func(components storage.Components) error {
+			certificate, err := components.Lifecycle().GetExpiredCertificate("expired")
+			require.NoError(t, err)
+			require.Equal(t, []byte("expired-cert"), certificate)
+			return nil
+		}))
+		require.NoError(t, backend.Update(func(components storage.Components) error {
+			return components.Lifecycle().MoveExpiredToRevoked("expired", big.NewInt(7))
+		}))
+		require.NoError(t, backend.View(func(components storage.Components) error {
+			_, err := components.Lifecycle().GetExpiredCertificate("expired")
+			require.ErrorIs(t, err, storage.ErrNotFound)
+			_, err = components.Keys().GetPrivateKey("expired")
+			require.NoError(t, err)
+			_, err = components.CSRs().GetCSR("expired")
+			return err
+		}))
+
+		require.NoError(t, backend.Update(func(components storage.Components) error {
+			if err := components.Keys().Put(&cert.Pair{Name: "renewed", CertPEM: []byte("renewed-cert"), KeyPEM: []byte("key")}); err != nil {
+				return err
+			}
+			return components.Lifecycle().MoveIssuedToRenewed("renewed", big.NewInt(9))
+		}))
+		require.NoError(t, backend.View(func(components storage.Components) error {
+			certificate, err := components.Lifecycle().GetRenewedCertificate("renewed")
+			require.NoError(t, err)
+			require.Equal(t, []byte("renewed-cert"), certificate)
+			return nil
+		}))
+		err := backend.Update(func(components storage.Components) error {
+			return components.Lifecycle().MoveIssuedToRenewed("renewed", big.NewInt(9))
+		})
+		require.ErrorIs(t, err, storage.ErrConflict)
+
+		require.NoError(t, backend.Update(func(components storage.Components) error {
+			if err := components.Keys().Put(&cert.Pair{Name: "issued", CertPEM: []byte("issued-cert"), KeyPEM: []byte("key")}); err != nil {
+				return err
+			}
+			if err := components.CSRs().PutCSR("issued", []byte("request")); err != nil {
+				return err
+			}
+			return components.Lifecycle().MoveIssuedToRevoked("issued", big.NewInt(8))
+		}))
+		require.NoError(t, backend.View(func(components storage.Components) error {
+			_, err := components.Keys().GetPrivateKey("issued")
+			require.ErrorIs(t, err, storage.ErrNotFound)
+			_, err = components.CSRs().GetCSR("issued")
+			require.ErrorIs(t, err, storage.ErrNotFound)
 			return nil
 		}))
 	})

@@ -54,8 +54,8 @@ func (testArtifactStorage) DeleteArtifact(string) error { return storage.ErrNotF
 
 type testLifecycleStorage struct{}
 
-func (testLifecycleStorage) MoveIssuedToExpired(string) error { return storage.ErrNotFound }
-func (testLifecycleStorage) MoveIssuedToRenewed(string) error { return storage.ErrNotFound }
+func (testLifecycleStorage) MoveIssuedToExpired(string, *big.Int) error { return storage.ErrNotFound }
+func (testLifecycleStorage) MoveIssuedToRenewed(string, *big.Int) error { return storage.ErrNotFound }
 func (testLifecycleStorage) MoveIssuedToRevoked(string, *big.Int) error {
 	return storage.ErrNotFound
 }
@@ -64,6 +64,13 @@ func (testLifecycleStorage) MoveExpiredToRevoked(string, *big.Int) error {
 }
 func (testLifecycleStorage) MoveRenewedToRevoked(string, *big.Int) error {
 	return storage.ErrNotFound
+}
+func (testLifecycleStorage) ExportState() (storage.LifecycleState, error) {
+	return storage.LifecycleState{}, nil
+}
+func (testLifecycleStorage) ReplaceState(storage.LifecycleState) error { return nil }
+func (testLifecycleStorage) GetExpiredCertificate(string) ([]byte, error) {
+	return nil, storage.ErrNotFound
 }
 func (testLifecycleStorage) GetRenewedCertificate(string) ([]byte, error) {
 	return nil, storage.ErrNotFound
@@ -91,6 +98,8 @@ func assertSnapshotEquivalent(t *testing.T, want, got *pki.Snapshot) {
 	require.NotNil(t, got.NextSerial)
 	assert.Equal(t, storage.HexSerial(want.NextSerial), storage.HexSerial(got.NextSerial))
 	assert.Equal(t, len(want.Index), len(got.Index))
+	assert.Equal(t, want.Current, got.Current)
+	assert.Equal(t, want.Lifecycle, got.Lifecycle)
 
 	wantIndex := make([]string, 0, len(want.Index))
 	gotIndex := make([]string, 0, len(got.Index))

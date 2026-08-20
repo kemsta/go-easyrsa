@@ -110,6 +110,7 @@ func (s *store) replace(source *store) {
 	s.revokedKeys = replacement.revokedKeys
 	s.revokedCSRs = replacement.revokedCSRs
 	s.revokedNames = replacement.revokedNames
+	s.revokedAssetsArchived = replacement.revokedAssetsArchived
 	s.unavailable = replacement.unavailable
 }
 
@@ -156,6 +157,9 @@ func (s *store) clone() *store {
 	cloneByteMap(cloned.revokedCSRs, s.revokedCSRs)
 	for serial, name := range s.revokedNames {
 		cloned.revokedNames[serial] = name
+	}
+	for serial, archived := range s.revokedAssetsArchived {
+		cloned.revokedAssetsArchived[serial] = archived
 	}
 	for name, unavailable := range s.unavailable {
 		cloned.unavailable[name] = unavailable

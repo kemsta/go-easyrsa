@@ -16,46 +16,48 @@ import (
 
 // store holds all shared in-memory state.
 type store struct {
-	mu           sync.RWMutex
-	pairs        map[string][]*cert.Pair // name → ordered history (latest last)
-	bySerial     map[string]*cert.Pair   // uppercase hex serial → pair
-	csrs         map[string][]byte       // name → CSR PEM
-	pendingKeys  map[string][]byte       // name → key for an unsigned request
-	entries      []storage.IndexEntry    // index DB rows
-	crlPEM       []byte                  // CRL PEM, nil if none
-	serial       *big.Int                // next serial counter
-	artifacts    map[string]storage.Artifact
-	expired      map[string][]byte
-	renewed      map[string][]byte
-	revokedCerts map[string][]byte // serial → certificate PEM
-	revokedKeys  map[string][]byte // serial → private key PEM
-	revokedCSRs  map[string][]byte // serial → CSR PEM
-	revokedNames map[string]string // serial → storage entity name
-	unavailable  map[string]bool   // no certificate in issued/ for this name
+	mu                    sync.RWMutex
+	pairs                 map[string][]*cert.Pair // name → ordered history (latest last)
+	bySerial              map[string]*cert.Pair   // uppercase hex serial → pair
+	csrs                  map[string][]byte       // name → CSR PEM
+	pendingKeys           map[string][]byte       // name → key for an unsigned request
+	entries               []storage.IndexEntry    // index DB rows
+	crlPEM                []byte                  // CRL PEM, nil if none
+	serial                *big.Int                // next serial counter
+	artifacts             map[string]storage.Artifact
+	expired               map[string][]byte
+	renewed               map[string][]byte
+	revokedCerts          map[string][]byte // serial → certificate PEM
+	revokedKeys           map[string][]byte // serial → private key PEM
+	revokedCSRs           map[string][]byte // serial → CSR PEM
+	revokedNames          map[string]string // serial → storage entity name
+	revokedAssetsArchived map[string]bool   // serial → key/CSR moved with certificate
+	unavailable           map[string]bool   // no certificate in issued/ for this name
 }
 
 func newStore() *store {
 	return &store{
-		pairs:        make(map[string][]*cert.Pair),
-		bySerial:     make(map[string]*cert.Pair),
-		csrs:         make(map[string][]byte),
-		pendingKeys:  make(map[string][]byte),
-		serial:       big.NewInt(1),
-		artifacts:    make(map[string]storage.Artifact),
-		expired:      make(map[string][]byte),
-		renewed:      make(map[string][]byte),
-		revokedCerts: make(map[string][]byte),
-		revokedKeys:  make(map[string][]byte),
-		revokedCSRs:  make(map[string][]byte),
-		revokedNames: make(map[string]string),
-		unavailable:  make(map[string]bool),
+		pairs:                 make(map[string][]*cert.Pair),
+		bySerial:              make(map[string]*cert.Pair),
+		csrs:                  make(map[string][]byte),
+		pendingKeys:           make(map[string][]byte),
+		serial:                big.NewInt(1),
+		artifacts:             make(map[string]storage.Artifact),
+		expired:               make(map[string][]byte),
+		renewed:               make(map[string][]byte),
+		revokedCerts:          make(map[string][]byte),
+		revokedKeys:           make(map[string][]byte),
+		revokedCSRs:           make(map[string][]byte),
+		revokedNames:          make(map[string]string),
+		revokedAssetsArchived: make(map[string]bool),
+		unavailable:           make(map[string]bool),
 	}
 }
 
 func (s *store) empty() bool {
 	return len(s.pairs) == 0 && len(s.bySerial) == 0 && len(s.csrs) == 0 && len(s.pendingKeys) == 0 && len(s.entries) == 0 &&
 		len(s.crlPEM) == 0 && len(s.artifacts) == 0 && len(s.expired) == 0 && len(s.renewed) == 0 &&
-		len(s.revokedCerts) == 0 && len(s.revokedKeys) == 0 && len(s.revokedCSRs) == 0 && len(s.revokedNames) == 0 &&
+		len(s.revokedCerts) == 0 && len(s.revokedKeys) == 0 && len(s.revokedCSRs) == 0 && len(s.revokedNames) == 0 && len(s.revokedAssetsArchived) == 0 &&
 		s.serial != nil && s.serial.Cmp(big.NewInt(1)) == 0
 }
 

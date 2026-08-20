@@ -107,8 +107,8 @@ func (a *ArtifactStorage) GetArtifact(name string) (storage.Artifact, error) {
 // present and rejects every mutation.
 type LifecycleStorage struct{ pkiDir string }
 
-func (l *LifecycleStorage) MoveIssuedToExpired(string) error { return storage.ErrReadOnly }
-func (l *LifecycleStorage) MoveIssuedToRenewed(string) error { return storage.ErrReadOnly }
+func (l *LifecycleStorage) MoveIssuedToExpired(string, *big.Int) error { return storage.ErrReadOnly }
+func (l *LifecycleStorage) MoveIssuedToRenewed(string, *big.Int) error { return storage.ErrReadOnly }
 func (l *LifecycleStorage) MoveIssuedToRevoked(string, *big.Int) error {
 	return storage.ErrReadOnly
 }
@@ -118,6 +118,27 @@ func (l *LifecycleStorage) MoveExpiredToRevoked(string, *big.Int) error {
 func (l *LifecycleStorage) MoveRenewedToRevoked(string, *big.Int) error {
 	return storage.ErrReadOnly
 }
+func (l *LifecycleStorage) GetExpiredCertificate(name string) ([]byte, error) {
+	if err := storage.ValidateEntityName(name); err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(l.pkiDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, storage.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	data, err := readLegacyRegular(root, filepath.Join("expired", name+".crt"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, storage.ErrNotFound
+	}
+	return data, err
+}
+
+func (l *LifecycleStorage) ReplaceState(storage.LifecycleState) error { return storage.ErrReadOnly }
+
 func (l *LifecycleStorage) GetRenewedCertificate(name string) ([]byte, error) {
 	if err := storage.ValidateEntityName(name); err != nil {
 		return nil, err

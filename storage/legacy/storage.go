@@ -108,6 +108,46 @@ func (ks *KeyStorage) GetBySerial(serial *big.Int) (*cert.Pair, error) {
 	return nil, storage.ErrNotFound
 }
 
+func (ks *KeyStorage) CurrentCertificates() ([]storage.CurrentCertificate, error) {
+	ks.mu.RLock()
+	defer ks.mu.RUnlock()
+	entries, err := os.ReadDir(ks.pkiDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var current []storage.CurrentCertificate
+	for _, entry := range entries {
+		if !entry.IsDir() || !safeEntityName(entry.Name()) {
+			continue
+		}
+		pairs, err := ks.scanName(entry.Name())
+		if err != nil || len(pairs) == 0 {
+			if errors.Is(err, storage.ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		serial, err := pairs[len(pairs)-1].Serial()
+		if err != nil {
+			return nil, err
+		}
+		current = append(current, storage.CurrentCertificate{
+			Name:          entry.Name(),
+			Serial:        new(big.Int).Set(serial),
+			PrivateKeyPEM: append([]byte(nil), pairs[len(pairs)-1].KeyPEM...),
+		})
+	}
+	sort.Slice(current, func(i, j int) bool { return current[i].Name < current[j].Name })
+	return current, nil
+}
+
+func (ks *KeyStorage) ReplaceCurrentCertificates([]storage.CurrentCertificate) error {
+	return storage.ErrReadOnly
+}
+
 func (ks *KeyStorage) GetAll() ([]*cert.Pair, error) {
 	ks.mu.RLock()
 	defer ks.mu.RUnlock()
@@ -451,19 +491,20 @@ func (ch *CRLHolder) Get() (*x509.RevocationList, error) {
 }
 
 var (
-	_ storage.KeyStorage         = (*KeyStorage)(nil)
-	_ storage.IndexDB            = (*IndexDB)(nil)
-	_ storage.CSRStorage         = (*CSRStorage)(nil)
-	_ storage.SerialProvider     = (*SerialProvider)(nil)
-	_ storage.CRLHolder          = (*CRLHolder)(nil)
-	_ storage.ReadOnly           = (*KeyStorage)(nil)
-	_ storage.ReadOnly           = (*IndexDB)(nil)
-	_ storage.ReadOnly           = (*CSRStorage)(nil)
-	_ storage.ReadOnly           = (*SerialProvider)(nil)
-	_ storage.ReadOnly           = (*CRLHolder)(nil)
-	_ storage.OwnershipValidator = (*KeyStorage)(nil)
-	_ storage.OwnershipValidator = (*IndexDB)(nil)
-	_ storage.OwnershipValidator = (*CSRStorage)(nil)
-	_ storage.OwnershipValidator = (*SerialProvider)(nil)
-	_ storage.OwnershipValidator = (*CRLHolder)(nil)
+	_ storage.KeyStorage              = (*KeyStorage)(nil)
+	_ storage.CurrentCertificateStore = (*KeyStorage)(nil)
+	_ storage.IndexDB                 = (*IndexDB)(nil)
+	_ storage.CSRStorage              = (*CSRStorage)(nil)
+	_ storage.SerialProvider          = (*SerialProvider)(nil)
+	_ storage.CRLHolder               = (*CRLHolder)(nil)
+	_ storage.ReadOnly                = (*KeyStorage)(nil)
+	_ storage.ReadOnly                = (*IndexDB)(nil)
+	_ storage.ReadOnly                = (*CSRStorage)(nil)
+	_ storage.ReadOnly                = (*SerialProvider)(nil)
+	_ storage.ReadOnly                = (*CRLHolder)(nil)
+	_ storage.OwnershipValidator      = (*KeyStorage)(nil)
+	_ storage.OwnershipValidator      = (*IndexDB)(nil)
+	_ storage.OwnershipValidator      = (*CSRStorage)(nil)
+	_ storage.OwnershipValidator      = (*SerialProvider)(nil)
+	_ storage.OwnershipValidator      = (*CRLHolder)(nil)
 )

@@ -15,46 +15,22 @@ import (
 	"github.com/kemsta/go-easyrsa/v2/storage"
 )
 
-// Revoke revokes all certificates stored under the given name.
+// Revoke is Easy-RSA's current-issued revoke operation. RevokeIssued is the
+// explicit alias used when other lifecycle locations conflict.
 func (p *PKI) Revoke(name string, reason cert.RevocationReason) error {
-	if !p.bound() {
-		return withUpdateError(p, func(bound *PKI) error { return bound.Revoke(name, reason) })
-	}
-	if err := validateEntityName(name); err != nil {
-		return err
-	}
-	pairs, err := p.storage.GetByName(name)
-	if err != nil {
-		return err
-	}
-	now := time.Now()
-	var errs []error
-	for _, pair := range pairs {
-		if pair.CertPEM == nil {
-			continue
-		}
-		serial, err := pair.Serial()
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		if err := p.index.Update(serial, storage.StatusRevoked, now, reason); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	if err := errors.Join(errs...); err != nil {
-		return err // index update(s) failed; do not regenerate CRL from inconsistent state (W4)
-	}
-	if _, err = p.GenCRL(); err != nil {
-		return err
-	}
-	return nil
+	return p.RevokeIssued(name, reason)
 }
 
 // RevokeBySerial revokes the certificate identified by the given serial number.
 func (p *PKI) RevokeBySerial(serial *big.Int, reason cert.RevocationReason) error {
 	if !p.bound() {
 		return withUpdateError(p, func(bound *PKI) error { return bound.RevokeBySerial(serial, reason) })
+	}
+	if err := storage.ValidateSerial(serial); err != nil {
+		return err
+	}
+	if err := validateRevocationReason(reason); err != nil {
+		return err
 	}
 	// Verify the cert exists.
 	if _, err := p.storage.GetBySerial(serial); err != nil {
@@ -67,9 +43,8 @@ func (p *PKI) RevokeBySerial(serial *big.Int, reason cert.RevocationReason) erro
 	return err
 }
 
-// RevokeExpired revokes all expired certificates stored under the given name.
-// Resolution is by storage key (not Subject CN), so it works correctly in org
-// mode when WithSubjectOverride sets a CN that differs from the entity name.
+// RevokeExpired archives expired/NAME.crt and records revocation without
+// moving the current key or CSR and without generating a CRL.
 func (p *PKI) RevokeExpired(name string, reason cert.RevocationReason) error {
 	if !p.bound() {
 		return withUpdateError(p, func(bound *PKI) error { return bound.RevokeExpired(name, reason) })
@@ -77,44 +52,10 @@ func (p *PKI) RevokeExpired(name string, reason cert.RevocationReason) error {
 	if err := validateEntityName(name); err != nil {
 		return err
 	}
-	pairs, err := p.storage.GetByName(name)
-	if err != nil {
+	if err := validateRevocationReason(reason); err != nil {
 		return err
 	}
-
-	expiredStatus := storage.StatusExpired
-	allExpired, err := p.index.Query(storage.IndexFilter{Status: &expiredStatus})
-	if err != nil {
-		return err
-	}
-
-	// Build a set of serials for this storage name.
-	type void struct{}
-	serials := make(map[string]void, len(pairs))
-	for _, pair := range pairs {
-		if pair.CertPEM == nil {
-			continue
-		}
-		if serial, err := pair.Serial(); err == nil {
-			serials[serial.Text(16)] = void{}
-		}
-	}
-
-	now := time.Now()
-	var errs []error
-	for _, e := range allExpired {
-		if _, ok := serials[e.Serial.Text(16)]; !ok {
-			continue
-		}
-		if err := p.index.Update(e.Serial, storage.StatusRevoked, now, reason); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	if err := errors.Join(errs...); err != nil {
-		return err // index update(s) failed; do not regenerate CRL from inconsistent state
-	}
-	_, err = p.GenCRL()
-	return err
+	return p.revokeExpired(name, reason)
 }
 
 // GenCRL generates and stores a new Certificate Revocation List, returning the PEM bytes.

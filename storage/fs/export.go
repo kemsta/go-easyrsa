@@ -80,7 +80,7 @@ func (ks *KeyStorage) ExportPairs(yield func(*cert.Pair) error) error {
 			return fmt.Errorf("storage/fs: invalid stored entity name: %w", err)
 		}
 		pair := &cert.Pair{Name: name, CertPEM: certPEM}
-		if keyPEM, err := os.ReadFile(ks.keyPath(name)); err == nil {
+		if keyPEM, err := ks.keyForSerial(name, item.serial); err == nil {
 			pair.KeyPEM = keyPEM
 		}
 		if err := yield(pair); err != nil {

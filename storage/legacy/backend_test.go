@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kemsta/go-easyrsa/v2/cert"
+	"github.com/kemsta/go-easyrsa/v2/internal/testutil"
 	"github.com/kemsta/go-easyrsa/v2/storage"
 	"github.com/kemsta/go-easyrsa/v2/storage/legacy"
 )
@@ -44,6 +45,36 @@ func TestBackendRejectsEntityDirectorySymlink(t *testing.T) {
 		require.Error(t, err)
 		_, err = components.CRLs().Get()
 		require.Error(t, err)
+		return nil
+	}))
+}
+
+func TestBackendExportsReadableLifecycleLocations(t *testing.T) {
+	t.Parallel()
+
+	pkiDir := t.TempDir()
+	fixture := testutil.WriteLegacyFixture(t, pkiDir)
+	require.NoError(t, os.MkdirAll(filepath.Join(pkiDir, "expired"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(pkiDir, "expired", "expired-name.crt"), fixture.ExpiredPair.CertPEM, 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(pkiDir, "renewed", "issued"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(pkiDir, "renewed", "issued", "renewed-name.crt"), fixture.ClientOld.CertPEM, 0o644))
+	revokedSerial := storage.HexSerial(testutil.MustSerial(t, fixture.RevokedPair))
+	require.NoError(t, os.MkdirAll(filepath.Join(pkiDir, "revoked", "certs_by_serial"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(pkiDir, "revoked", "private_by_serial"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(pkiDir, "revoked", "certs_by_serial", revokedSerial+".crt"), fixture.RevokedPair.CertPEM, 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(pkiDir, "revoked", "private_by_serial", revokedSerial+".key"), fixture.RevokedPair.KeyPEM, 0o600))
+
+	backend := legacy.NewBackend(pkiDir, "ca")
+	require.NoError(t, backend.View(func(components storage.Components) error {
+		state, err := components.Lifecycle().ExportState()
+		require.NoError(t, err)
+		require.Len(t, state.Expired, 1)
+		require.Equal(t, "expired-name", state.Expired[0].Name)
+		require.Len(t, state.Renewed, 1)
+		require.Equal(t, "renewed-name", state.Renewed[0].Name)
+		require.Len(t, state.Revoked, 1)
+		require.True(t, state.Revoked[0].AssetsArchived)
+		require.Equal(t, fixture.RevokedPair.KeyPEM, state.Revoked[0].PrivateKeyPEM)
 		return nil
 	}))
 }

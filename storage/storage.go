@@ -110,6 +110,21 @@ type PairReplacer interface {
 	ReplacePairs(stream PairStream) error
 }
 
+// CurrentCertificate identifies the certificate currently published at an
+// Easy-RSA name, independently of serial ordering.
+type CurrentCertificate struct {
+	Name          string
+	Serial        *big.Int
+	PrivateKeyPEM []byte
+}
+
+// CurrentCertificateStore exports and restores named current-certificate
+// ownership for snapshots. Implementations retain all serial history.
+type CurrentCertificateStore interface {
+	CurrentCertificates() ([]CurrentCertificate, error)
+	ReplaceCurrentCertificates([]CurrentCertificate) error
+}
+
 // CSRStorage stores Certificate Signing Requests (PEM-encoded).
 type CSRStorage interface {
 	PutCSR(name string, csrPEM []byte) error

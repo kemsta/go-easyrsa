@@ -20,6 +20,8 @@ type Snapshot struct {
 	Index      []storage.IndexEntry
 	CRLPEM     []byte
 	NextSerial *big.Int
+	Current    []storage.CurrentCertificate
+	Lifecycle  storage.LifecycleState
 }
 
 // ExportSnapshot exports PKI metadata in a storage-agnostic form.
@@ -37,12 +39,26 @@ func (p *PKI) ExportSnapshot() (*Snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
+	lifecycle, err := p.lifecycle.ExportState()
+	if err != nil {
+		return nil, err
+	}
+	currentStore, ok := p.storage.(storage.CurrentCertificateStore)
+	if !ok {
+		return nil, errors.New("pki: key storage does not support current-certificate snapshots")
+	}
+	current, err := currentStore.CurrentCertificates()
+	if err != nil {
+		return nil, err
+	}
 
 	return &Snapshot{
 		CAName:     p.config.CAName,
 		Index:      entries,
 		CRLPEM:     crlPEM,
 		NextSerial: nextSerialFromEntries(entries),
+		Current:    current,
+		Lifecycle:  lifecycle,
 	}, nil
 }
 
@@ -103,12 +119,24 @@ func (p *PKI) ImportSnapshot(snapshot *Snapshot, stream storage.PairStream) erro
 		}
 	}
 
+	currentStore, ok := p.storage.(storage.CurrentCertificateStore)
+	if !ok {
+		return errors.New("pki: target key storage does not support current-certificate snapshots")
+	}
+	if err := currentStore.ReplaceCurrentCertificates(snapshot.Current); err != nil {
+		return err
+	}
+
 	if replacer, ok := p.index.(storage.IndexReplacer); ok {
 		if err := replacer.ReplaceAll(snapshot.Index); err != nil {
 			return err
 		}
 	} else {
 		return errors.New("pki: target index does not support snapshot import")
+	}
+
+	if err := p.lifecycle.ReplaceState(snapshot.Lifecycle); err != nil {
+		return err
 	}
 
 	if len(snapshot.CRLPEM) > 0 {

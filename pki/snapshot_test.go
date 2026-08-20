@@ -3,6 +3,8 @@ package pki_test
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"math/big"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -113,6 +115,61 @@ func TestImportSnapshotRejectsCRLSignedByAnotherCA(t *testing.T) {
 	require.Error(t, err)
 	_, err = target.ShowCA()
 	require.ErrorIs(t, err, storage.ErrNotFound)
+}
+
+func TestSnapshotRoundTripPreservesLifecycleLocations(t *testing.T) {
+	t.Parallel()
+
+	source, err := pki.NewWithFS(filepath.Join(t.TempDir(), "source"), pki.Config{NoPass: true, SequentialSerial: true, KeyAlgo: pki.AlgoRSA, KeySize: 1024})
+	require.NoError(t, err)
+	_, err = source.BuildCA()
+	require.NoError(t, err)
+	_, err = source.BuildClientFull("expired")
+	require.NoError(t, err)
+	require.NoError(t, source.Expire("expired"))
+	_, err = source.BuildClientFull("renewed", pki.WithCertModifier(func(template *x509.Certificate) {
+		template.SerialNumber = big.NewInt(1000)
+	}))
+	require.NoError(t, err)
+	_, err = source.Renew("renewed", pki.WithCertModifier(func(template *x509.Certificate) {
+		template.SerialNumber = big.NewInt(10)
+	}))
+	require.NoError(t, err)
+	_, err = source.BuildClientFull("revoked", pki.WithCertModifier(func(template *x509.Certificate) {
+		template.SerialNumber = big.NewInt(2000)
+	}))
+	require.NoError(t, err)
+	require.NoError(t, source.RevokeIssued("revoked", cert.ReasonUnspecified))
+	currentRevoked, err := source.BuildClientFull("revoked", pki.WithCertModifier(func(template *x509.Certificate) {
+		template.SerialNumber = big.NewInt(20)
+	}))
+	require.NoError(t, err)
+
+	snapshot, err := source.ExportSnapshot()
+	require.NoError(t, err)
+	require.Len(t, snapshot.Lifecycle.Expired, 1)
+	require.Len(t, snapshot.Lifecycle.Renewed, 1)
+	require.Len(t, snapshot.Lifecycle.Revoked, 1)
+
+	for _, targetCase := range lifecycleBackends() {
+		t.Run(targetCase.name, func(t *testing.T) {
+			backend, _ := targetCase.create(t)
+			require.NoError(t, backend.EnsureLayout())
+			target, err := pki.New(pki.Config{NoPass: true, SequentialSerial: true, CAName: snapshot.CAName}, backend)
+			require.NoError(t, err)
+			require.NoError(t, target.ImportSnapshot(snapshot, source.ExportPairs))
+			roundTrip, err := target.ExportSnapshot()
+			require.NoError(t, err)
+			assertSnapshotEquivalent(t, snapshot, roundTrip)
+			importedCurrent, err := target.ShowCert("revoked")
+			require.NoError(t, err)
+			require.Equal(t, currentRevoked.CertPEM, importedCurrent.CertPEM)
+			require.Equal(t, currentRevoked.KeyPEM, importedCurrent.KeyPEM)
+			_, err = target.Renew("renewed")
+			require.ErrorIs(t, err, storage.ErrConflict)
+			require.NoError(t, target.RevokeExpired("expired", cert.ReasonCessationOfOperation))
+		})
+	}
 }
 
 func TestImportSnapshot_MemoryPreservesHistoryAndStatuses(t *testing.T) {

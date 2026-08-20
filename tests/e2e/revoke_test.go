@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRevoke — Pattern A: go-easyrsa revokes, easy-rsa verifies via show-crl.
+// TestRevoke — Pattern A: go-easyrsa revokes, then easy-rsa explicitly generates and shows the CRL.
 func TestRevoke(t *testing.T) {
 	pkiDir := t.TempDir()
 	er := testutil.NewRunner(t, pkiDir)
@@ -24,8 +24,9 @@ func TestRevoke(t *testing.T) {
 	require.NoError(t, err)
 
 	err = p.Revoke("client1", cert.ReasonUnspecified)
-	require.NoError(t, err) // fails: ErrNotImplemented
+	require.NoError(t, err)
 
+	er.Run("gen-crl")
 	out := er.Run("show-crl")
 	assert.Contains(t, out, "Revoked Certificates")
 }
@@ -58,12 +59,13 @@ func TestRevokeExpired(t *testing.T) {
 	er.Run("init-pki")
 	er.Run("build-ca", "nopass")
 	er.Run("build-client-full", "client1", "nopass")
+	er.Run("expire", "client1")
 
 	p, err := pki.NewWithFS(pkiDir, pki.Config{NoPass: true})
 	require.NoError(t, err)
 
 	err = p.RevokeExpired("client1", cert.ReasonCessationOfOperation)
-	require.NoError(t, err) // fails: ErrNotImplemented
+	require.NoError(t, err)
 }
 
 // TestGenCRL — Pattern A: go-easyrsa generates CRL, easy-rsa can show it.
