@@ -6,6 +6,22 @@ import (
 	"strings"
 )
 
+// RenewalArchiveSource identifies an Easy-RSA renewal archive directory.
+type RenewalArchiveSource string
+
+const (
+	RenewalArchiveIssued   RenewalArchiveSource = "issued"
+	RenewalArchiveBySerial RenewalArchiveSource = "certs_by_serial"
+)
+
+// RenewalArchive is one certificate stored in a renewal archive.
+type RenewalArchive struct {
+	Name           string
+	Serial         *big.Int
+	CertificatePEM []byte
+	Source         RenewalArchiveSource
+}
+
 // LifecycleRecord is one archived certificate and its optional associated
 // private key and request.
 type LifecycleRecord struct {
@@ -15,6 +31,7 @@ type LifecycleRecord struct {
 	PrivateKeyPEM  []byte
 	CSRPEM         []byte
 	AssetsArchived bool
+	RenewalSource  RenewalArchiveSource
 }
 
 // LifecycleState is the storage-agnostic representation used by snapshots.
@@ -34,6 +51,7 @@ type LifecycleStorage interface {
 	MoveRenewedToRevoked(name string, serial *big.Int) error
 	GetExpiredCertificate(name string) ([]byte, error)
 	GetRenewedCertificate(name string) ([]byte, error)
+	ListRenewed() ([]RenewalArchive, error)
 	ExportState() (LifecycleState, error)
 	ReplaceState(LifecycleState) error
 }

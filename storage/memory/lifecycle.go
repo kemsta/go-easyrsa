@@ -161,6 +161,64 @@ func (l *LifecycleStorage) GetRenewedCertificate(name string) ([]byte, error) {
 	return cloneBytes(certificate), nil
 }
 
+func (l *LifecycleStorage) ListRenewed() ([]storage.RenewalArchive, error) {
+	l.s.mu.RLock()
+	defer l.s.mu.RUnlock()
+
+	archives := make([]storage.RenewalArchive, 0, len(l.s.renewed)+len(l.s.renewedBySerial))
+	seenSerials := make(map[string]struct{}, cap(archives))
+	for name, certificatePEM := range l.s.renewed {
+		serial, err := (&cert.Pair{Name: name, CertPEM: certificatePEM}).Serial()
+		if err != nil {
+			return nil, fmt.Errorf("storage/memory: parse renewed certificate %q: %w", name, err)
+		}
+		serialKey := storage.HexSerial(serial)
+		if _, exists := seenSerials[serialKey]; exists {
+			return nil, storage.ErrConflict
+		}
+		seenSerials[serialKey] = struct{}{}
+		archives = append(archives, storage.RenewalArchive{
+			Name:           name,
+			Serial:         new(big.Int).Set(serial),
+			CertificatePEM: cloneBytes(certificatePEM),
+			Source:         storage.RenewalArchiveIssued,
+		})
+	}
+	for serialKey, certificatePEM := range l.s.renewedBySerial {
+		filenameSerial := new(big.Int)
+		if _, ok := filenameSerial.SetString(serialKey, 16); !ok || filenameSerial.Sign() <= 0 {
+			return nil, fmt.Errorf("storage/memory: invalid renewed serial %q", serialKey)
+		}
+		certificateSerial, err := (&cert.Pair{CertPEM: certificatePEM}).Serial()
+		if err != nil {
+			return nil, fmt.Errorf("storage/memory: parse renewed certificate %q: %w", serialKey, err)
+		}
+		if filenameSerial.Cmp(certificateSerial) != 0 {
+			return nil, fmt.Errorf("storage/memory: renewed serial %s does not match certificate serial %s", serialKey, storage.HexSerial(certificateSerial))
+		}
+		canonicalSerial := storage.HexSerial(certificateSerial)
+		if _, exists := seenSerials[canonicalSerial]; exists {
+			return nil, storage.ErrConflict
+		}
+		seenSerials[canonicalSerial] = struct{}{}
+		archives = append(archives, storage.RenewalArchive{
+			Serial:         new(big.Int).Set(certificateSerial),
+			CertificatePEM: cloneBytes(certificatePEM),
+			Source:         storage.RenewalArchiveBySerial,
+		})
+	}
+	sort.Slice(archives, func(i, j int) bool {
+		if archives[i].Source != archives[j].Source {
+			return archives[i].Source == storage.RenewalArchiveIssued
+		}
+		if archives[i].Name != archives[j].Name {
+			return archives[i].Name < archives[j].Name
+		}
+		return archives[i].Serial.Cmp(archives[j].Serial) < 0
+	})
+	return archives, nil
+}
+
 func (l *LifecycleStorage) ExportState() (storage.LifecycleState, error) {
 	l.s.mu.RLock()
 	defer l.s.mu.RUnlock()
@@ -179,7 +237,30 @@ func (l *LifecycleStorage) ExportState() (storage.LifecycleState, error) {
 		if err != nil {
 			return storage.LifecycleState{}, err
 		}
+		record.RenewalSource = storage.RenewalArchiveIssued
 		state.Renewed = append(state.Renewed, record)
+	}
+	for serialHex, certificate := range l.s.renewedBySerial {
+		serial := new(big.Int)
+		if _, ok := serial.SetString(serialHex, 16); !ok || serial.Sign() <= 0 {
+			return storage.LifecycleState{}, fmt.Errorf("storage/memory: invalid renewed serial %q", serialHex)
+		}
+		parsed, err := (&cert.Pair{CertPEM: certificate}).Certificate()
+		if err != nil {
+			return storage.LifecycleState{}, err
+		}
+		if parsed.SerialNumber.Cmp(serial) != 0 {
+			return storage.LifecycleState{}, fmt.Errorf("storage/memory: renewed serial does not match certificate")
+		}
+		if err := storage.ValidateEntityName(parsed.Subject.CommonName); err != nil {
+			return storage.LifecycleState{}, err
+		}
+		state.Renewed = append(state.Renewed, storage.LifecycleRecord{
+			Name:           parsed.Subject.CommonName,
+			Serial:         new(big.Int).Set(serial),
+			CertificatePEM: cloneBytes(certificate),
+			RenewalSource:  storage.RenewalArchiveBySerial,
+		})
 	}
 	for serialHex, certificate := range l.s.revokedCerts {
 		serial := new(big.Int)
@@ -223,6 +304,7 @@ func (l *LifecycleStorage) currentAssets(name string) ([]byte, []byte) {
 func (l *LifecycleStorage) ReplaceState(state storage.LifecycleState) error {
 	expired := make(map[string][]byte)
 	renewed := make(map[string][]byte)
+	renewedBySerial := make(map[string][]byte)
 	revokedCerts := make(map[string][]byte)
 	revokedKeys := make(map[string][]byte)
 	revokedCSRs := make(map[string][]byte)
@@ -232,6 +314,9 @@ func (l *LifecycleStorage) ReplaceState(state storage.LifecycleState) error {
 		if record.AssetsArchived {
 			return fmt.Errorf("storage/memory: archived assets are only valid for revoked certificates")
 		}
+		if record.RenewalSource != "" {
+			return fmt.Errorf("storage/memory: renewal source is only valid for renewed certificates")
+		}
 		if err := validateLifecycleRecord(record); err != nil {
 			return err
 		}
@@ -240,6 +325,7 @@ func (l *LifecycleStorage) ReplaceState(state storage.LifecycleState) error {
 		}
 		expired[record.Name] = cloneBytes(record.CertificatePEM)
 	}
+	seenRenewedSerials := make(map[string]struct{})
 	for _, record := range state.Renewed {
 		if record.AssetsArchived {
 			return fmt.Errorf("storage/memory: archived assets are only valid for revoked certificates")
@@ -247,12 +333,41 @@ func (l *LifecycleStorage) ReplaceState(state storage.LifecycleState) error {
 		if err := validateLifecycleRecord(record); err != nil {
 			return err
 		}
-		if _, exists := renewed[record.Name]; exists {
+		serialHex := hexSerial(record.Serial)
+		if _, exists := seenRenewedSerials[serialHex]; exists {
 			return storage.ErrConflict
 		}
-		renewed[record.Name] = cloneBytes(record.CertificatePEM)
+		seenRenewedSerials[serialHex] = struct{}{}
+		source := record.RenewalSource
+		if source == "" {
+			source = storage.RenewalArchiveIssued
+		}
+		switch source {
+		case storage.RenewalArchiveIssued:
+			if _, exists := renewed[record.Name]; exists {
+				return storage.ErrConflict
+			}
+			renewed[record.Name] = cloneBytes(record.CertificatePEM)
+		case storage.RenewalArchiveBySerial:
+			if len(record.PrivateKeyPEM) > 0 || len(record.CSRPEM) > 0 {
+				return fmt.Errorf("storage/memory: historical renewed certificates cannot carry current assets")
+			}
+			certificate, err := (&cert.Pair{CertPEM: record.CertificatePEM}).Certificate()
+			if err != nil {
+				return err
+			}
+			if record.Name != certificate.Subject.CommonName {
+				return fmt.Errorf("storage/memory: historical renewed name does not match certificate common name")
+			}
+			renewedBySerial[serialHex] = cloneBytes(record.CertificatePEM)
+		default:
+			return fmt.Errorf("storage/memory: unsupported renewal source %q", source)
+		}
 	}
 	for _, record := range state.Revoked {
+		if record.RenewalSource != "" {
+			return fmt.Errorf("storage/memory: renewal source is only valid for renewed certificates")
+		}
 		if err := validateLifecycleRecord(record); err != nil {
 			return err
 		}
@@ -273,6 +388,7 @@ func (l *LifecycleStorage) ReplaceState(state storage.LifecycleState) error {
 	defer l.s.mu.Unlock()
 	l.s.expired = expired
 	l.s.renewed = renewed
+	l.s.renewedBySerial = renewedBySerial
 	l.s.revokedCerts = revokedCerts
 	l.s.revokedKeys = revokedKeys
 	l.s.revokedCSRs = revokedCSRs
@@ -281,7 +397,7 @@ func (l *LifecycleStorage) ReplaceState(state storage.LifecycleState) error {
 	l.s.unavailable = make(map[string]bool)
 	preservedAssets := append(append(append([]storage.LifecycleRecord(nil), state.Expired...), state.Renewed...), state.Revoked...)
 	for _, record := range preservedAssets {
-		if record.AssetsArchived {
+		if record.AssetsArchived || record.RenewalSource == storage.RenewalArchiveBySerial {
 			continue
 		}
 		pairs := l.s.pairs[record.Name]

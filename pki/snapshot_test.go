@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"math/big"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -120,7 +121,8 @@ func TestImportSnapshotRejectsCRLSignedByAnotherCA(t *testing.T) {
 func TestSnapshotRoundTripPreservesLifecycleLocations(t *testing.T) {
 	t.Parallel()
 
-	source, err := pki.NewWithFS(filepath.Join(t.TempDir(), "source"), pki.Config{NoPass: true, SequentialSerial: true, KeyAlgo: pki.AlgoRSA, KeySize: 1024})
+	sourceDir := filepath.Join(t.TempDir(), "source")
+	source, err := pki.NewWithFS(sourceDir, pki.Config{NoPass: true, SequentialSerial: true, KeyAlgo: pki.AlgoRSA, KeySize: 1024})
 	require.NoError(t, err)
 	_, err = source.BuildCA()
 	require.NoError(t, err)
@@ -135,6 +137,21 @@ func TestSnapshotRoundTripPreservesLifecycleLocations(t *testing.T) {
 		template.SerialNumber = big.NewInt(10)
 	}))
 	require.NoError(t, err)
+	historical, err := source.BuildClientFull("historical", pki.WithCertModifier(func(template *x509.Certificate) {
+		template.SerialNumber = big.NewInt(3000)
+	}))
+	require.NoError(t, err)
+	historicalSerial, err := historical.Serial()
+	require.NoError(t, err)
+	_, err = source.Renew("historical", pki.WithCertModifier(func(template *x509.Certificate) {
+		template.SerialNumber = big.NewInt(30)
+	}))
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(sourceDir, "renewed", "certs_by_serial"), 0o755))
+	require.NoError(t, os.Rename(
+		filepath.Join(sourceDir, "renewed", "issued", "historical.crt"),
+		filepath.Join(sourceDir, "renewed", "certs_by_serial", storage.HexSerial(historicalSerial)+".crt"),
+	))
 	_, err = source.BuildClientFull("revoked", pki.WithCertModifier(func(template *x509.Certificate) {
 		template.SerialNumber = big.NewInt(2000)
 	}))
@@ -148,12 +165,14 @@ func TestSnapshotRoundTripPreservesLifecycleLocations(t *testing.T) {
 	snapshot, err := source.ExportSnapshot()
 	require.NoError(t, err)
 	require.Len(t, snapshot.Lifecycle.Expired, 1)
-	require.Len(t, snapshot.Lifecycle.Renewed, 1)
+	require.Len(t, snapshot.Lifecycle.Renewed, 2)
+	require.Equal(t, storage.RenewalArchiveIssued, snapshot.Lifecycle.Renewed[0].RenewalSource)
+	require.Equal(t, storage.RenewalArchiveBySerial, snapshot.Lifecycle.Renewed[1].RenewalSource)
 	require.Len(t, snapshot.Lifecycle.Revoked, 1)
 
 	for _, targetCase := range lifecycleBackends() {
 		t.Run(targetCase.name, func(t *testing.T) {
-			backend, _ := targetCase.create(t)
+			backend, targetDir := targetCase.create(t)
 			require.NoError(t, backend.EnsureLayout())
 			target, err := pki.New(pki.Config{NoPass: true, SequentialSerial: true, CAName: snapshot.CAName}, backend)
 			require.NoError(t, err)
@@ -168,6 +187,11 @@ func TestSnapshotRoundTripPreservesLifecycleLocations(t *testing.T) {
 			_, err = target.Renew("renewed")
 			require.ErrorIs(t, err, storage.ErrConflict)
 			require.NoError(t, target.RevokeExpired("expired", cert.ReasonCessationOfOperation))
+			if targetDir != "" {
+				require.FileExists(t, filepath.Join(targetDir, "renewed", "issued", "renewed.crt"))
+				require.FileExists(t, filepath.Join(targetDir, "renewed", "certs_by_serial", storage.HexSerial(historicalSerial)+".crt"))
+				require.NoFileExists(t, filepath.Join(targetDir, "renewed", "issued", "historical.crt"))
+			}
 		})
 	}
 }

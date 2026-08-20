@@ -28,6 +28,7 @@ type store struct {
 	artifacts             map[string]storage.Artifact
 	expired               map[string][]byte
 	renewed               map[string][]byte
+	renewedBySerial       map[string][]byte // serial → historical renewed certificate PEM
 	revokedCerts          map[string][]byte // serial → certificate PEM
 	revokedKeys           map[string][]byte // serial → private key PEM
 	revokedCSRs           map[string][]byte // serial → CSR PEM
@@ -46,6 +47,7 @@ func newStore() *store {
 		artifacts:             make(map[string]storage.Artifact),
 		expired:               make(map[string][]byte),
 		renewed:               make(map[string][]byte),
+		renewedBySerial:       make(map[string][]byte),
 		revokedCerts:          make(map[string][]byte),
 		revokedKeys:           make(map[string][]byte),
 		revokedCSRs:           make(map[string][]byte),
@@ -57,7 +59,7 @@ func newStore() *store {
 
 func (s *store) empty() bool {
 	return len(s.pairs) == 0 && len(s.bySerial) == 0 && len(s.csrs) == 0 && len(s.pendingKeys) == 0 && len(s.entries) == 0 &&
-		len(s.crlPEM) == 0 && len(s.artifacts) == 0 && len(s.expired) == 0 && len(s.renewed) == 0 &&
+		len(s.crlPEM) == 0 && len(s.artifacts) == 0 && len(s.expired) == 0 && len(s.renewed) == 0 && len(s.renewedBySerial) == 0 &&
 		len(s.revokedCerts) == 0 && len(s.revokedKeys) == 0 && len(s.revokedCSRs) == 0 && len(s.revokedNames) == 0 && len(s.revokedAssetsArchived) == 0 &&
 		s.serial != nil && s.serial.Cmp(big.NewInt(1)) == 0
 }

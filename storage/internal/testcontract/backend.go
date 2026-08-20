@@ -1,9 +1,15 @@
 package testcontract
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -117,8 +123,9 @@ func RunWritableBackend(t *testing.T, factory WritableBackendFactory) {
 			return err
 		}))
 
+		renewedCertificate := testCertificatePEM(t, big.NewInt(9), "renewed")
 		require.NoError(t, backend.Update(func(components storage.Components) error {
-			if err := components.Keys().Put(&cert.Pair{Name: "renewed", CertPEM: []byte("renewed-cert"), KeyPEM: []byte("key")}); err != nil {
+			if err := components.Keys().Put(&cert.Pair{Name: "renewed", CertPEM: renewedCertificate, KeyPEM: []byte("key")}); err != nil {
 				return err
 			}
 			return components.Lifecycle().MoveIssuedToRenewed("renewed", big.NewInt(9))
@@ -126,7 +133,24 @@ func RunWritableBackend(t *testing.T, factory WritableBackendFactory) {
 		require.NoError(t, backend.View(func(components storage.Components) error {
 			certificate, err := components.Lifecycle().GetRenewedCertificate("renewed")
 			require.NoError(t, err)
-			require.Equal(t, []byte("renewed-cert"), certificate)
+			require.Equal(t, renewedCertificate, certificate)
+			archives, err := components.Lifecycle().ListRenewed()
+			require.NoError(t, err)
+			require.Len(t, archives, 1)
+			require.Equal(t, "renewed", archives[0].Name)
+			require.Equal(t, storage.RenewalArchiveIssued, archives[0].Source)
+			require.Zero(t, archives[0].Serial.Cmp(big.NewInt(9)))
+			require.Equal(t, renewedCertificate, archives[0].CertificatePEM)
+			archives[0].Serial.SetInt64(99)
+			archives[0].CertificatePEM[0] ^= 0xff
+			return nil
+		}))
+		require.NoError(t, backend.View(func(components storage.Components) error {
+			archives, err := components.Lifecycle().ListRenewed()
+			require.NoError(t, err)
+			require.Len(t, archives, 1)
+			require.Zero(t, archives[0].Serial.Cmp(big.NewInt(9)))
+			require.Equal(t, renewedCertificate, archives[0].CertificatePEM)
 			return nil
 		}))
 		err := backend.Update(func(components storage.Components) error {
@@ -166,4 +190,19 @@ func RunWritableBackend(t *testing.T, factory WritableBackendFactory) {
 			return nil
 		}))
 	})
+}
+
+func testCertificatePEM(t *testing.T, serial *big.Int, commonName string) []byte {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	require.NoError(t, err)
+	template := &x509.Certificate{
+		SerialNumber: new(big.Int).Set(serial),
+		Subject:      pkix.Name{CommonName: commonName},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }

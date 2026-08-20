@@ -142,6 +142,9 @@ func (s readOnlyLifecycleStorage) GetExpiredCertificate(name string) ([]byte, er
 func (s readOnlyLifecycleStorage) GetRenewedCertificate(name string) ([]byte, error) {
 	return s.reader.GetRenewedCertificate(name)
 }
+func (s readOnlyLifecycleStorage) ListRenewed() ([]RenewalArchive, error) {
+	return s.reader.ListRenewed()
+}
 func (s readOnlyLifecycleStorage) ExportState() (LifecycleState, error) {
 	return s.reader.ExportState()
 }
