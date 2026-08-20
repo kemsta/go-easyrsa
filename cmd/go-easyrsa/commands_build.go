@@ -329,6 +329,25 @@ func newRevokeExpiredCmd(opts *cliOptions) *cobra.Command {
 	}
 }
 
+func newRevokeRenewedCmd(opts *cliOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "revoke-renewed <name> [reason]",
+		Short: "Revoke a renewed certificate",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			reason, err := parseReason(optionalArg(args, 1))
+			if err != nil {
+				return err
+			}
+			pk, _, err := openPKI(opts, nil)
+			if err != nil {
+				return err
+			}
+			return pk.RevokeRenewed(args[0], reason)
+		},
+	}
+}
+
 func newGenCRLCmd(opts *cliOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "gen-crl",
@@ -425,19 +444,22 @@ func newSetPassCmd(opts *cliOptions) *cobra.Command {
 }
 
 func parseReason(value string) (cert.RevocationReason, error) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "us", "unspecified", "uns":
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch {
+	case normalized == "", normalized == "us", strings.HasPrefix(normalized, "uns"):
 		return cert.ReasonUnspecified, nil
-	case "kc", "key", "keycompromise":
+	case normalized == "kc", strings.HasPrefix(normalized, "key"):
 		return cert.ReasonKeyCompromise, nil
-	case "cc", "ca", "cacompromise":
+	case normalized == "cc", strings.HasPrefix(normalized, "ca"):
 		return cert.ReasonCACompromise, nil
-	case "ac", "aff", "affiliationchanged":
+	case normalized == "ac", strings.HasPrefix(normalized, "aff"):
 		return cert.ReasonAffiliationChanged, nil
-	case "ss", "sup", "superseded":
+	case normalized == "ss", strings.HasPrefix(normalized, "sup"):
 		return cert.ReasonSuperseded, nil
-	case "co", "ces", "cessationofoperation":
+	case normalized == "co", strings.HasPrefix(normalized, "ces"):
 		return cert.ReasonCessationOfOperation, nil
+	case normalized == "ch", strings.HasPrefix(normalized, "cer"):
+		return cert.ReasonCertificateHold, nil
 	default:
 		return 0, fmt.Errorf("unknown revocation reason %q", value)
 	}
