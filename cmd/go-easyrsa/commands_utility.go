@@ -159,7 +159,7 @@ func newRandCmd() *cobra.Command {
 
 func parseHexSerial(value string) (*big.Int, error) {
 	if value == "" || strings.IndexFunc(value, func(r rune) bool {
-		return !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F'))
+		return (r < '0' || r > '9') && (r < 'a' || r > 'f') && (r < 'A' || r > 'F')
 	}) >= 0 {
 		return nil, fmt.Errorf("go-easyrsa: invalid hexadecimal serial %q", value)
 	}

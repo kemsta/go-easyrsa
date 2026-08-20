@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/x509"
 	"encoding/pem"
 	"os"
 	"path/filepath"
@@ -255,20 +254,17 @@ type localP12Meta struct {
 
 func parseLocalP12Meta(t *testing.T, data []byte, password string) localP12Meta {
 	t.Helper()
-	blocks, err := gopkcs12.ToPEM(data, password)
+	privateKey, certificate, caCertificates, err := gopkcs12.DecodeChain(data, password)
 	require.NoError(t, err)
 	meta := localP12Meta{}
-	for _, block := range blocks {
-		switch block.Type {
-		case "CERTIFICATE":
-			certificate, err := x509.ParseCertificate(block.Bytes)
-			require.NoError(t, err)
-			meta.CertCNs = append(meta.CertCNs, certificate.Subject.CommonName)
-		default:
-			if block.Type == "PRIVATE KEY" || block.Type == "ENCRYPTED PRIVATE KEY" || block.Type == "RSA PRIVATE KEY" {
-				meta.KeyBlocks++
-			}
-		}
+	if privateKey != nil {
+		meta.KeyBlocks = 1
+	}
+	if certificate != nil {
+		meta.CertCNs = append(meta.CertCNs, certificate.Subject.CommonName)
+	}
+	for _, caCertificate := range caCertificates {
+		meta.CertCNs = append(meta.CertCNs, caCertificate.Subject.CommonName)
 	}
 	sort.Strings(meta.CertCNs)
 	return meta

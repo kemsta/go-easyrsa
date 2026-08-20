@@ -1050,7 +1050,7 @@ func TestCLI_UsesEnvPassInPassOutForExportP1(t *testing.T) {
 	block, _ := pem.Decode(keyPEM)
 	require.NotNil(t, block)
 	require.Equal(t, "RSA PRIVATE KEY", block.Type)
-	require.True(t, x509.IsEncryptedPEMBlock(block))
+	require.True(t, x509.IsEncryptedPEMBlock(block))             //nolint:staticcheck // compatibility assertion
 	der, err := x509.DecryptPEMBlock(block, []byte("secret123")) //nolint:staticcheck // compatibility assertion
 	require.NoError(t, err)
 	_, err = x509.ParsePKCS1PrivateKey(der)
