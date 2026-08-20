@@ -332,12 +332,13 @@ func TestOpenWithFSReadsWithoutMutatingValidPKI(t *testing.T) {
 	assert.Equal(t, before, snapshotTestTree(t, dir))
 }
 
-func TestOpenWithFSRejectsForeignLayout(t *testing.T) {
+func TestOpenWithFSDefersForeignLayoutErrorUntilOperation(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "foreign.txt"), []byte("foreign"), 0o600))
-	_, err := pki.OpenWithFS(dir, pki.Config{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not look like the current PKI filesystem layout")
+	pk, err := pki.OpenWithFS(dir, pki.Config{})
+	require.NoError(t, err)
+	_, err = pk.ShowCA()
+	require.ErrorIs(t, err, storage.ErrForeignStorage)
 }
 
 func TestNewWithFSStillInitializesLayout(t *testing.T) {

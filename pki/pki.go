@@ -50,12 +50,13 @@ func New(cfg Config, backend storage.Backend) (*PKI, error) {
 // creating directories or files. It is suitable for read-only operations.
 func OpenWithFS(pkiDir string, cfg Config) (*PKI, error) {
 	cfg = applyConfigDefaults(cfg)
-	backend := fsstore.NewBackend(pkiDir, cfg.CAName)
-	pk, err := New(cfg, backend)
-	if err != nil {
-		return nil, wrapForeignStorageError(err, pkiDir, "current PKI filesystem layout")
+	if err := storage.ValidateEntityName(cfg.CAName); err != nil {
+		return nil, fmt.Errorf("pki: invalid CA name: %w", err)
 	}
-	return pk, nil
+	// Construction is deliberately non-validating and non-mutating so callers
+	// can invoke InitPKI and receive ErrForeignStorage from that operation. Every
+	// ordinary View/Update still validates ownership in the backend.
+	return &PKI{backend: fsstore.NewBackend(pkiDir, cfg.CAName), config: cfg}, nil
 }
 
 // NewWithFS constructs a PKI backed by a filesystem PKI directory
@@ -96,7 +97,7 @@ func NewWithLegacyFSRO(pkiDir string, cfg Config) (*PKI, error) {
 // applyConfigDefaults fills zero values in cfg with sensible defaults.
 func wrapForeignStorageError(err error, target, layout string) error {
 	if errors.Is(err, storage.ErrForeignStorage) {
-		return fmt.Errorf("%s is not empty and does not look like the %s", target, layout)
+		return fmt.Errorf("%s is not empty and does not look like the %s: %w", target, layout, err)
 	}
 	return err
 }

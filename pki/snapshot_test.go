@@ -1,11 +1,14 @@
 package pki_test
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kemsta/go-easyrsa/v2/cert"
 	"github.com/kemsta/go-easyrsa/v2/internal/testutil"
 	"github.com/kemsta/go-easyrsa/v2/pki"
 	"github.com/kemsta/go-easyrsa/v2/storage"
@@ -41,6 +44,75 @@ func TestExportSnapshot_LegacyContainsHistoryAndMetadata(t *testing.T) {
 	assert.True(t, serials[storage.HexSerial(testutil.MustSerial(t, fixture.ClientCurrent))])
 	assert.True(t, serials[storage.HexSerial(testutil.MustSerial(t, fixture.ExpiredPair))])
 	assert.True(t, serials[storage.HexSerial(testutil.MustSerial(t, fixture.RevokedPair))])
+}
+
+func TestImportSnapshotPersistsValidatedCRLArtifacts(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	fixture := testutil.WriteLegacyFixture(t, dir)
+	source, err := pki.NewWithLegacyFSRO(dir, pki.Config{})
+	require.NoError(t, err)
+	snapshot, err := source.ExportSnapshot()
+	require.NoError(t, err)
+
+	backend := memory.NewBackend()
+	target, err := pki.New(pki.Config{CAName: snapshot.CAName}, backend)
+	require.NoError(t, err)
+	require.NoError(t, target.ImportSnapshot(snapshot, source.ExportPairs))
+	block, _ := pem.Decode(snapshot.CRLPEM)
+	require.NotNil(t, block)
+	require.NoError(t, backend.View(func(components storage.Components) error {
+		pemArtifact, err := components.Artifacts().GetArtifact("crl.pem")
+		require.NoError(t, err)
+		require.Equal(t, snapshot.CRLPEM, pemArtifact.Data)
+		derArtifact, err := components.Artifacts().GetArtifact("crl.der")
+		require.NoError(t, err)
+		require.Equal(t, block.Bytes, derArtifact.Data)
+		_, err = x509.ParseRevocationList(derArtifact.Data)
+		return err
+	}))
+
+	malformedBackend := memory.NewBackend()
+	malformedTarget, err := pki.New(pki.Config{CAName: "ca"}, malformedBackend)
+	require.NoError(t, err)
+	malformed := &pki.Snapshot{CAName: "ca", CRLPEM: fixture.CAPair.CertPEM}
+	err = malformedTarget.ImportSnapshot(malformed, func(func(*cert.Pair) error) error { return nil })
+	require.Error(t, err)
+	require.NoError(t, malformedBackend.View(func(components storage.Components) error {
+		_, err := components.Artifacts().GetArtifact("crl.pem")
+		require.ErrorIs(t, err, storage.ErrNotFound)
+		return nil
+	}))
+}
+
+func TestImportSnapshotRejectsCRLSignedByAnotherCA(t *testing.T) {
+	t.Parallel()
+
+	first, err := pki.NewWithMemory(pki.Config{NoPass: true, KeyAlgo: pki.AlgoRSA, KeySize: 1024})
+	require.NoError(t, err)
+	_, err = first.BuildCA()
+	require.NoError(t, err)
+	_, err = first.GenCRL()
+	require.NoError(t, err)
+	firstSnapshot, err := first.ExportSnapshot()
+	require.NoError(t, err)
+
+	second, err := pki.NewWithMemory(pki.Config{NoPass: true, KeyAlgo: pki.AlgoRSA, KeySize: 1024})
+	require.NoError(t, err)
+	_, err = second.BuildCA()
+	require.NoError(t, err)
+	secondSnapshot, err := second.ExportSnapshot()
+	require.NoError(t, err)
+	secondSnapshot.CRLPEM = firstSnapshot.CRLPEM
+
+	backend := memory.NewBackend()
+	target, err := pki.New(pki.Config{NoPass: true, CAName: secondSnapshot.CAName}, backend)
+	require.NoError(t, err)
+	err = target.ImportSnapshot(secondSnapshot, second.ExportPairs)
+	require.Error(t, err)
+	_, err = target.ShowCA()
+	require.ErrorIs(t, err, storage.ErrNotFound)
 }
 
 func TestImportSnapshot_MemoryPreservesHistoryAndStatuses(t *testing.T) {

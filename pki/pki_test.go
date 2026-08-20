@@ -1259,7 +1259,7 @@ func TestExportP12_Basic(t *testing.T) {
 	_, err := p.BuildClientFull("client1")
 	require.NoError(t, err)
 
-	data, err := p.ExportP12("client1", "password")
+	data, err := p.ExportP12("client1", pki.ExportP12Options{Password: "password"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, data)
 }
@@ -1271,7 +1271,7 @@ func TestExportP12_EncryptedKey(t *testing.T) {
 	_, err := p.BuildClientFull("client1", pki.WithPassphrase("x"))
 	require.NoError(t, err)
 
-	_, err = p.ExportP12("client1", "bundle-pass")
+	_, err = p.ExportP12("client1", pki.ExportP12Options{Password: "bundle-pass"})
 	assert.Error(t, err)
 
 	// With KeyPassphrase set, export should succeed.
@@ -1280,7 +1280,7 @@ func TestExportP12_EncryptedKey(t *testing.T) {
 	_, err = p2.BuildClientFull("client1", pki.WithPassphrase("x"))
 	require.NoError(t, err)
 
-	data, err := p2.ExportP12("client1", "bundle-pass")
+	data, err := p2.ExportP12("client1", pki.ExportP12Options{Password: "bundle-pass"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, data)
 }
@@ -1293,7 +1293,7 @@ func TestExportP7_Basic(t *testing.T) {
 	_, err := p.BuildClientFull("client1")
 	require.NoError(t, err)
 
-	data, err := p.ExportP7("client1")
+	data, err := p.ExportP7("client1", pki.ExportP7Options{})
 	require.NoError(t, err)
 	assert.NotEmpty(t, data)
 }
@@ -1330,7 +1330,7 @@ func TestExportP1_RSA(t *testing.T) {
 	_, err := p.BuildClientFull("client1")
 	require.NoError(t, err)
 
-	data, err := p.ExportP1("client1")
+	data, err := p.ExportP1("client1", "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, data)
 }
@@ -1341,7 +1341,7 @@ func TestExportP1_ECDSA_Error(t *testing.T) {
 	_, err := p.BuildClientFull("client1")
 	require.NoError(t, err)
 
-	_, err = p.ExportP1("client1")
+	_, err = p.ExportP1("client1", "")
 	assert.Error(t, err)
 }
 
@@ -1474,7 +1474,7 @@ func TestConfig_PassphrasesNotLeakedInStringFormatting(t *testing.T) {
 
 // --- Legacy read-only backend ---
 
-func TestNewWithLegacyFSRO_ReadsAndExports(t *testing.T) {
+func TestNewWithLegacyFSRO_ReadsAndRejectsPersistedExports(t *testing.T) {
 	dir := t.TempDir()
 	fixture := testutil.WriteLegacyFixture(t, dir)
 
@@ -1512,21 +1512,16 @@ func TestNewWithLegacyFSRO_ReadsAndExports(t *testing.T) {
 
 	require.NoError(t, p.VerifyCert("client1"))
 
-	p12, err := p.ExportP12("client1", "bundle-pass")
-	require.NoError(t, err)
-	assert.NotEmpty(t, p12)
-
-	p7, err := p.ExportP7("client1")
-	require.NoError(t, err)
-	assert.NotEmpty(t, p7)
-
-	p8, err := p.ExportP8("client1", "secret")
-	require.NoError(t, err)
-	assert.NotEmpty(t, p8)
-
-	p1, err := p.ExportP1("client1")
-	require.NoError(t, err)
-	assert.NotEmpty(t, p1)
+	_, err = p.ExportP12("client1", pki.ExportP12Options{Password: "bundle-pass"})
+	require.ErrorIs(t, err, storage.ErrReadOnly)
+	_, err = p.ExportP7("client1", pki.ExportP7Options{})
+	require.ErrorIs(t, err, storage.ErrReadOnly)
+	_, err = p.ExportP8("client1", "secret")
+	require.ErrorIs(t, err, storage.ErrReadOnly)
+	_, err = p.ExportP1("client1", "")
+	require.ErrorIs(t, err, storage.ErrReadOnly)
+	_, err = p.GenDH(128)
+	require.ErrorIs(t, err, storage.ErrReadOnly)
 }
 
 func TestNewWithLegacyFSRO_RejectsWrites(t *testing.T) {

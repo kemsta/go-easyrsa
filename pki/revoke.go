@@ -182,6 +182,14 @@ func (p *PKI) GenCRL() ([]byte, error) {
 	if err := p.crlHolder.Put(crlPEM); err != nil {
 		return nil, err
 	}
+	for _, artifact := range []storage.Artifact{
+		{Path: "crl.pem", Data: crlPEM, Visibility: storage.ArtifactPublic},
+		{Path: "crl.der", Data: crlDER, Visibility: storage.ArtifactPublic},
+	} {
+		if err := p.artifacts.PutArtifact(artifact); err != nil {
+			return nil, err
+		}
+	}
 	return crlPEM, nil
 }
 
@@ -191,6 +199,11 @@ func (p *PKI) GenCRL() ([]byte, error) {
 func (p *PKI) ResetCRL() error {
 	if !p.bound() {
 		return withUpdateError(p, func(bound *PKI) error { return bound.ResetCRL() })
+	}
+	for _, name := range []string{"crl.der", "crl.pem"} {
+		if err := p.artifacts.DeleteArtifact(name); err != nil && !errors.Is(err, storage.ErrNotFound) {
+			return err
+		}
 	}
 	// CRLHolder implementations that store to a file expose a Delete method.
 	type deleter interface {

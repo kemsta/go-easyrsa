@@ -1,6 +1,8 @@
 package pki
 
 import (
+	"bytes"
+	"crypto/x509"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -110,8 +112,35 @@ func (p *PKI) ImportSnapshot(snapshot *Snapshot, stream storage.PairStream) erro
 	}
 
 	if len(snapshot.CRLPEM) > 0 {
+		block, trailing := pem.Decode(snapshot.CRLPEM)
+		if block == nil || block.Type != "X509 CRL" || len(bytes.TrimSpace(trailing)) != 0 {
+			return errors.New("pki: snapshot CRL contains no valid X509 CRL PEM block")
+		}
+		revocationList, err := x509.ParseRevocationList(block.Bytes)
+		if err != nil {
+			return fmt.Errorf("pki: parse snapshot CRL: %w", err)
+		}
+		caPair, err := p.storage.GetLastByName(snapshot.CAName)
+		if err != nil {
+			return fmt.Errorf("pki: load imported CA for CRL verification: %w", err)
+		}
+		caCertificate, err := caPair.Certificate()
+		if err != nil {
+			return fmt.Errorf("pki: parse imported CA for CRL verification: %w", err)
+		}
+		if err := revocationList.CheckSignatureFrom(caCertificate); err != nil {
+			return fmt.Errorf("pki: verify snapshot CRL signature: %w", err)
+		}
 		if err := p.crlHolder.Put(snapshot.CRLPEM); err != nil {
 			return err
+		}
+		for _, artifact := range []storage.Artifact{
+			{Path: "crl.pem", Data: snapshot.CRLPEM, Visibility: storage.ArtifactPublic},
+			{Path: "crl.der", Data: block.Bytes, Visibility: storage.ArtifactPublic},
+		} {
+			if err := p.artifacts.PutArtifact(artifact); err != nil {
+				return err
+			}
 		}
 	}
 
