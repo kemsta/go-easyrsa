@@ -2,8 +2,10 @@ package pki
 
 import (
 	"crypto/elliptic"
+	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/kemsta/go-easyrsa/v2/storage"
 	fsstore "github.com/kemsta/go-easyrsa/v2/storage/fs"
@@ -16,6 +18,7 @@ import (
 type PKI struct {
 	backend storage.Backend
 	config  Config
+	random  io.Reader
 
 	// The low-level fields are populated only on an ephemeral PKI copy bound to
 	// a backend View or Update callback. Public calls on the durable PKI enter a
@@ -43,7 +46,7 @@ func New(cfg Config, backend storage.Backend) (*PKI, error) {
 			return nil, err
 		}
 	}
-	return &PKI{backend: backend, config: cfg}, nil
+	return &PKI{backend: backend, config: cfg, random: cryptorand.Reader}, nil
 }
 
 // OpenWithFS opens a PKI backed by an existing filesystem layout without
@@ -56,7 +59,7 @@ func OpenWithFS(pkiDir string, cfg Config) (*PKI, error) {
 	// Construction is deliberately non-validating and non-mutating so callers
 	// can invoke InitPKI and receive ErrForeignStorage from that operation. Every
 	// ordinary View/Update still validates ownership in the backend.
-	return &PKI{backend: fsstore.NewBackend(pkiDir, cfg.CAName), config: cfg}, nil
+	return &PKI{backend: fsstore.NewBackend(pkiDir, cfg.CAName), config: cfg, random: cryptorand.Reader}, nil
 }
 
 // NewWithFS constructs a PKI backed by a filesystem PKI directory

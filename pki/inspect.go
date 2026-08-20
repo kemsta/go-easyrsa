@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"math/big"
@@ -48,11 +49,26 @@ func (p *PKI) ShowReq(name string) (*cert.CSR, error) {
 
 // ShowEKU returns Easy-RSA's Extended Key Usage classification for the named
 // certificate. Unknown classifications return their label with cert.ErrUnknownEKU.
-func (p *PKI) ShowEKU(name string) (cert.EKUType, error) {
+func (p *PKI) ShowEKU(nameOrPath string) (cert.EKUType, error) {
 	if !p.bound() {
-		return withView(p, func(bound *PKI) (cert.EKUType, error) { return bound.ShowEKU(name) })
+		data, regular, err := readRegularPath(nameOrPath)
+		if err != nil {
+			return "", err
+		}
+		if regular {
+			block, _ := pem.Decode(data)
+			if block == nil {
+				return "", errors.New("pki: failed to decode certificate PEM")
+			}
+			certificate, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				return "", fmt.Errorf("pki: parse certificate: %w", err)
+			}
+			return cert.ClassifyEKU(certificate)
+		}
+		return withView(p, func(bound *PKI) (cert.EKUType, error) { return bound.ShowEKU(nameOrPath) })
 	}
-	pair, err := p.ShowCert(name)
+	pair, err := p.ShowCert(nameOrPath)
 	if err != nil {
 		return "", err
 	}
