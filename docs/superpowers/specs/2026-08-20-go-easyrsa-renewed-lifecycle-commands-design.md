@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved in the design discussion. The written specification awaits user review before implementation planning.
+Approved by the user after written-spec review. Ready for implementation planning.
 
 ## Background
 
