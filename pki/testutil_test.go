@@ -1,6 +1,7 @@
 package pki_test
 
 import (
+	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,6 +11,63 @@ import (
 	"github.com/kemsta/go-easyrsa/v2/pki"
 	"github.com/kemsta/go-easyrsa/v2/storage"
 )
+
+type testBackend struct{ components *testComponents }
+
+type testComponents struct {
+	keys    storage.KeyStorage
+	csrs    storage.CSRStorage
+	index   storage.IndexDB
+	serials storage.SerialProvider
+	crls    storage.CRLHolder
+}
+
+func newTestBackend(keys storage.KeyStorage, csrs storage.CSRStorage, index storage.IndexDB, serials storage.SerialProvider, crls storage.CRLHolder) *testBackend {
+	return &testBackend{components: &testComponents{keys: keys, csrs: csrs, index: index, serials: serials, crls: crls}}
+}
+
+func (b *testBackend) EnsureLayout() error   { return nil }
+func (b *testBackend) Initialize(bool) error { return nil }
+func (b *testBackend) ReadOnly() bool        { return false }
+func (b *testBackend) View(fn func(storage.Components) error) error {
+	return fn(b.components)
+}
+func (b *testBackend) Update(fn func(storage.Components) error) error {
+	return fn(b.components)
+}
+
+func (c *testComponents) Keys() storage.KeyStorage            { return c.keys }
+func (c *testComponents) CSRs() storage.CSRStorage            { return c.csrs }
+func (c *testComponents) Index() storage.IndexDB              { return c.index }
+func (c *testComponents) Serials() storage.SerialProvider     { return c.serials }
+func (c *testComponents) CRLs() storage.CRLHolder             { return c.crls }
+func (c *testComponents) Artifacts() storage.ArtifactStorage  { return testArtifactStorage{} }
+func (c *testComponents) Lifecycle() storage.LifecycleStorage { return testLifecycleStorage{} }
+
+type testArtifactStorage struct{}
+
+func (testArtifactStorage) PutArtifact(storage.Artifact) error { return nil }
+func (testArtifactStorage) GetArtifact(string) (storage.Artifact, error) {
+	return storage.Artifact{}, storage.ErrNotFound
+}
+func (testArtifactStorage) DeleteArtifact(string) error { return storage.ErrNotFound }
+
+type testLifecycleStorage struct{}
+
+func (testLifecycleStorage) MoveIssuedToExpired(string) error { return storage.ErrNotFound }
+func (testLifecycleStorage) MoveIssuedToRenewed(string) error { return storage.ErrNotFound }
+func (testLifecycleStorage) MoveIssuedToRevoked(string, *big.Int) error {
+	return storage.ErrNotFound
+}
+func (testLifecycleStorage) MoveExpiredToRevoked(string, *big.Int) error {
+	return storage.ErrNotFound
+}
+func (testLifecycleStorage) MoveRenewedToRevoked(string, *big.Int) error {
+	return storage.ErrNotFound
+}
+func (testLifecycleStorage) GetRenewedCertificate(string) ([]byte, error) {
+	return nil, storage.ErrNotFound
+}
 
 func collectPairs(t *testing.T, pk *pki.PKI) []*cert.Pair {
 	t.Helper()

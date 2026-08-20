@@ -22,6 +22,9 @@ type Snapshot struct {
 
 // ExportSnapshot exports PKI metadata in a storage-agnostic form.
 func (p *PKI) ExportSnapshot() (*Snapshot, error) {
+	if !p.bound() {
+		return withView(p, func(bound *PKI) (*Snapshot, error) { return bound.ExportSnapshot() })
+	}
 	entries, err := p.index.Query(storage.IndexFilter{})
 	if err != nil {
 		return nil, err
@@ -43,6 +46,9 @@ func (p *PKI) ExportSnapshot() (*Snapshot, error) {
 
 // ExportPairs streams certificate pairs in ascending serial order where possible.
 func (p *PKI) ExportPairs(yield func(*cert.Pair) error) error {
+	if !p.bound() {
+		return withViewError(p, func(bound *PKI) error { return bound.ExportPairs(yield) })
+	}
 	if yield == nil {
 		return errors.New("pki: yield must not be nil")
 	}
@@ -67,6 +73,9 @@ func (p *PKI) ExportPairs(yield func(*cert.Pair) error) error {
 // ImportSnapshot imports PKI metadata and a streamed pair set into this PKI.
 // The target PKI is expected to be empty/newly created.
 func (p *PKI) ImportSnapshot(snapshot *Snapshot, stream storage.PairStream) error {
+	if !p.bound() {
+		return withUpdateError(p, func(bound *PKI) error { return bound.ImportSnapshot(snapshot, stream) })
+	}
 	if snapshot == nil {
 		return errors.New("pki: snapshot must not be nil")
 	}

@@ -12,6 +12,9 @@ import (
 
 // BuildClientFull generates a client key and issues a signed client certificate.
 func (p *PKI) BuildClientFull(name string, opts ...Option) (*cert.Pair, error) {
+	if !p.bound() {
+		return withUpdate(p, func(bound *PKI) (*cert.Pair, error) { return bound.BuildClientFull(name, opts...) })
+	}
 	if err := validateEntityName(name); err != nil {
 		return nil, err
 	}
@@ -28,6 +31,9 @@ func (p *PKI) BuildClientFull(name string, opts ...Option) (*cert.Pair, error) {
 
 // BuildServerFull generates a server key and issues a signed server certificate.
 func (p *PKI) BuildServerFull(name string, opts ...Option) (*cert.Pair, error) {
+	if !p.bound() {
+		return withUpdate(p, func(bound *PKI) (*cert.Pair, error) { return bound.BuildServerFull(name, opts...) })
+	}
 	if err := validateEntityName(name); err != nil {
 		return nil, err
 	}
@@ -44,6 +50,11 @@ func (p *PKI) BuildServerFull(name string, opts ...Option) (*cert.Pair, error) {
 
 // BuildServerClientFull generates a key and issues a combined server+client certificate.
 func (p *PKI) BuildServerClientFull(name string, opts ...Option) (*cert.Pair, error) {
+	if !p.bound() {
+		return withUpdate(p, func(bound *PKI) (*cert.Pair, error) {
+			return bound.BuildServerClientFull(name, opts...)
+		})
+	}
 	if err := validateEntityName(name); err != nil {
 		return nil, err
 	}
@@ -60,6 +71,9 @@ func (p *PKI) BuildServerClientFull(name string, opts ...Option) (*cert.Pair, er
 
 // Renew renews a certificate by name, retaining the existing private key.
 func (p *PKI) Renew(name string, opts ...Option) (*cert.Pair, error) {
+	if !p.bound() {
+		return withUpdate(p, func(bound *PKI) (*cert.Pair, error) { return bound.Renew(name, opts...) })
+	}
 	if err := validateEntityName(name); err != nil {
 		return nil, err
 	}
@@ -146,6 +160,9 @@ func (p *PKI) Renew(name string, opts ...Option) (*cert.Pair, error) {
 
 // ExpireCert forces a certificate into expired state in the index.
 func (p *PKI) ExpireCert(name string) error {
+	if !p.bound() {
+		return withUpdateError(p, func(bound *PKI) error { return bound.ExpireCert(name) })
+	}
 	if err := validateEntityName(name); err != nil {
 		return err
 	}

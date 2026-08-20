@@ -15,6 +15,9 @@ import (
 
 // ExportP12 exports the named certificate and key as a PKCS#12 bundle.
 func (p *PKI) ExportP12(name string, password string) ([]byte, error) {
+	if !p.bound() {
+		return withView(p, func(bound *PKI) ([]byte, error) { return bound.ExportP12(name, password) })
+	}
 	if err := validateEntityName(name); err != nil {
 		return nil, err
 	}
@@ -45,6 +48,9 @@ func (p *PKI) ExportP12(name string, password string) ([]byte, error) {
 
 // ExportP7 exports the named certificate chain as a PKCS#7 bundle (no private key).
 func (p *PKI) ExportP7(name string) ([]byte, error) {
+	if !p.bound() {
+		return withView(p, func(bound *PKI) ([]byte, error) { return bound.ExportP7(name) })
+	}
 	if err := validateEntityName(name); err != nil {
 		return nil, err
 	}
@@ -84,6 +90,9 @@ func (p *PKI) ExportP7(name string) ([]byte, error) {
 // ExportP8 exports the named private key as a PKCS#8 PEM.
 // If password is non-empty, the key is encrypted.
 func (p *PKI) ExportP8(name string, password string) ([]byte, error) {
+	if !p.bound() {
+		return withView(p, func(bound *PKI) ([]byte, error) { return bound.ExportP8(name, password) })
+	}
 	if err := validateEntityName(name); err != nil {
 		return nil, err
 	}
@@ -100,6 +109,9 @@ func (p *PKI) ExportP8(name string, password string) ([]byte, error) {
 
 // ExportP1 exports the named private key as a PKCS#1 PEM (RSA only).
 func (p *PKI) ExportP1(name string) ([]byte, error) {
+	if !p.bound() {
+		return withView(p, func(bound *PKI) ([]byte, error) { return bound.ExportP1(name) })
+	}
 	if err := validateEntityName(name); err != nil {
 		return nil, err
 	}
@@ -123,11 +135,17 @@ func (p *PKI) ExportP1(name string) ([]byte, error) {
 
 // GenDH generates Diffie-Hellman parameters of the given bit size.
 func (p *PKI) GenDH(bits int) ([]byte, error) {
+	if !p.bound() {
+		return withView(p, func(bound *PKI) ([]byte, error) { return bound.GenDH(bits) })
+	}
 	return pkicrypto.GenDHParams(bits)
 }
 
 // SetPass changes the passphrase on the named private key.
 func (p *PKI) SetPass(name string, oldPass, newPass string) error {
+	if !p.bound() {
+		return withUpdateError(p, func(bound *PKI) error { return bound.SetPass(name, oldPass, newPass) })
+	}
 	if err := validateEntityName(name); err != nil {
 		return err
 	}

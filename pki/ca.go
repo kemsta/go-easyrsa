@@ -17,11 +17,17 @@ import (
 
 // ShowCA returns the CA certificate pair.
 func (p *PKI) ShowCA() (*cert.Pair, error) {
+	if !p.bound() {
+		return withView(p, func(bound *PKI) (*cert.Pair, error) { return bound.ShowCA() })
+	}
 	return p.storage.GetLastByName(p.config.CAName)
 }
 
 // BuildCA creates a new CA certificate and private key.
 func (p *PKI) BuildCA(opts ...Option) (*cert.Pair, error) {
+	if !p.bound() {
+		return withUpdate(p, func(bound *PKI) (*cert.Pair, error) { return bound.BuildCA(opts...) })
+	}
 	o := applyOptions(opts)
 
 	algo := string(p.config.KeyAlgo)
@@ -141,6 +147,9 @@ func (p *PKI) BuildCA(opts ...Option) (*cert.Pair, error) {
 
 // RenewCA renews the CA certificate, retaining the existing private key.
 func (p *PKI) RenewCA(opts ...Option) (*cert.Pair, error) {
+	if !p.bound() {
+		return withUpdate(p, func(bound *PKI) (*cert.Pair, error) { return bound.RenewCA(opts...) })
+	}
 	o := applyOptions(opts)
 
 	existing, err := p.storage.GetLastByName(p.config.CAName)

@@ -16,6 +16,9 @@ import (
 
 // ShowCert returns the certificate pair for the given name.
 func (p *PKI) ShowCert(name string) (*cert.Pair, error) {
+	if !p.bound() {
+		return withView(p, func(bound *PKI) (*cert.Pair, error) { return bound.ShowCert(name) })
+	}
 	if err := validateEntityName(name); err != nil {
 		return nil, err
 	}
@@ -26,6 +29,9 @@ func (p *PKI) ShowCert(name string) (*cert.Pair, error) {
 // It validates the request structure but, like Easy-RSA's inspection command,
 // deliberately does not verify the request signature.
 func (p *PKI) ShowReq(name string) (*cert.CSR, error) {
+	if !p.bound() {
+		return withView(p, func(bound *PKI) (*cert.CSR, error) { return bound.ShowReq(name) })
+	}
 	if err := validateEntityName(name); err != nil {
 		return nil, err
 	}
@@ -43,6 +49,9 @@ func (p *PKI) ShowReq(name string) (*cert.CSR, error) {
 // ShowEKU returns Easy-RSA's Extended Key Usage classification for the named
 // certificate. Unknown classifications return their label with cert.ErrUnknownEKU.
 func (p *PKI) ShowEKU(name string) (cert.EKUType, error) {
+	if !p.bound() {
+		return withView(p, func(bound *PKI) (cert.EKUType, error) { return bound.ShowEKU(name) })
+	}
 	pair, err := p.ShowCert(name)
 	if err != nil {
 		return "", err
@@ -57,6 +66,9 @@ func (p *PKI) ShowEKU(name string) (cert.EKUType, error) {
 // CheckSerial returns a deep copy of the matching index entry. A nil entry and
 // nil error mean that the serial is available.
 func (p *PKI) CheckSerial(serial *big.Int) (*storage.IndexEntry, error) {
+	if !p.bound() {
+		return withView(p, func(bound *PKI) (*storage.IndexEntry, error) { return bound.CheckSerial(serial) })
+	}
 	if serial == nil {
 		return nil, errors.New("pki: serial must not be nil")
 	}
@@ -89,11 +101,17 @@ func (p *PKI) CheckSerial(serial *big.Int) (*storage.IndexEntry, error) {
 
 // ShowCRL returns the current Certificate Revocation List.
 func (p *PKI) ShowCRL() (*x509.RevocationList, error) {
+	if !p.bound() {
+		return withView(p, func(bound *PKI) (*x509.RevocationList, error) { return bound.ShowCRL() })
+	}
 	return p.crlHolder.Get()
 }
 
 // ShowExpiring returns certificates expiring within withinDays days.
 func (p *PKI) ShowExpiring(withinDays int) ([]*cert.Pair, error) {
+	if !p.bound() {
+		return withView(p, func(bound *PKI) ([]*cert.Pair, error) { return bound.ShowExpiring(withinDays) })
+	}
 	validStatus := storage.StatusValid
 	entries, err := p.index.Query(storage.IndexFilter{Status: &validStatus})
 	if err != nil {
@@ -117,6 +135,9 @@ func (p *PKI) ShowExpiring(withinDays int) ([]*cert.Pair, error) {
 
 // ShowRevoked returns all revoked certificate pairs.
 func (p *PKI) ShowRevoked() ([]*cert.Pair, error) {
+	if !p.bound() {
+		return withView(p, func(bound *PKI) ([]*cert.Pair, error) { return bound.ShowRevoked() })
+	}
 	revokedStatus := storage.StatusRevoked
 	entries, err := p.index.Query(storage.IndexFilter{Status: &revokedStatus})
 	if err != nil {
@@ -137,6 +158,9 @@ func (p *PKI) ShowRevoked() ([]*cert.Pair, error) {
 
 // VerifyCert verifies the certificate chain for the named certificate.
 func (p *PKI) VerifyCert(name string) error {
+	if !p.bound() {
+		return withViewError(p, func(bound *PKI) error { return bound.VerifyCert(name) })
+	}
 	if err := validateEntityName(name); err != nil {
 		return err
 	}
@@ -433,6 +457,9 @@ func typeContainsMutableState(valueType reflect.Type, visiting map[reflect.Type]
 
 // UpdateDB scans issued certificates and marks expired ones as expired in the index.
 func (p *PKI) UpdateDB() error {
+	if !p.bound() {
+		return withUpdateError(p, func(bound *PKI) error { return bound.UpdateDB() })
+	}
 	if isReadOnly(p.index) {
 		return storage.ErrReadOnly
 	}

@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/kemsta/go-easyrsa/v2/cert"
 	"github.com/kemsta/go-easyrsa/v2/pki"
 	"github.com/kemsta/go-easyrsa/v2/storage"
 	"github.com/kemsta/go-easyrsa/v2/storage/memory"
@@ -22,12 +23,7 @@ func TestOwnershipValidators(t *testing.T) {
 		require.True(t, owned)
 	}
 
-	pk, err := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
-	require.NoError(t, err)
-	_, err = pk.BuildCA()
-	require.NoError(t, err)
-	_, err = pk.BuildClientFull("client1")
-	require.NoError(t, err)
+	require.NoError(t, ks.Put(&cert.Pair{Name: "client", KeyPEM: []byte("key")}))
 
 	for _, validator := range []storage.OwnershipValidator{ks, cs, idx, sp, crl} {
 		empty, err := validator.Empty()
@@ -37,4 +33,13 @@ func TestOwnershipValidators(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, owned)
 	}
+
+	backend := memory.NewBackend()
+	pk, err := pki.New(pki.Config{NoPass: true}, backend)
+	require.NoError(t, err)
+	_, err = pk.BuildCA()
+	require.NoError(t, err)
+	empty, err := backend.Empty()
+	require.NoError(t, err)
+	require.False(t, empty)
 }

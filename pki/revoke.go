@@ -17,6 +17,9 @@ import (
 
 // Revoke revokes all certificates stored under the given name.
 func (p *PKI) Revoke(name string, reason cert.RevocationReason) error {
+	if !p.bound() {
+		return withUpdateError(p, func(bound *PKI) error { return bound.Revoke(name, reason) })
+	}
 	if err := validateEntityName(name); err != nil {
 		return err
 	}
@@ -50,6 +53,9 @@ func (p *PKI) Revoke(name string, reason cert.RevocationReason) error {
 
 // RevokeBySerial revokes the certificate identified by the given serial number.
 func (p *PKI) RevokeBySerial(serial *big.Int, reason cert.RevocationReason) error {
+	if !p.bound() {
+		return withUpdateError(p, func(bound *PKI) error { return bound.RevokeBySerial(serial, reason) })
+	}
 	// Verify the cert exists.
 	if _, err := p.storage.GetBySerial(serial); err != nil {
 		return err
@@ -65,6 +71,9 @@ func (p *PKI) RevokeBySerial(serial *big.Int, reason cert.RevocationReason) erro
 // Resolution is by storage key (not Subject CN), so it works correctly in org
 // mode when WithSubjectOverride sets a CN that differs from the entity name.
 func (p *PKI) RevokeExpired(name string, reason cert.RevocationReason) error {
+	if !p.bound() {
+		return withUpdateError(p, func(bound *PKI) error { return bound.RevokeExpired(name, reason) })
+	}
 	if err := validateEntityName(name); err != nil {
 		return err
 	}
@@ -110,6 +119,9 @@ func (p *PKI) RevokeExpired(name string, reason cert.RevocationReason) error {
 
 // GenCRL generates and stores a new Certificate Revocation List, returning the PEM bytes.
 func (p *PKI) GenCRL() ([]byte, error) {
+	if !p.bound() {
+		return withUpdate(p, func(bound *PKI) ([]byte, error) { return bound.GenCRL() })
+	}
 	caPair, err := p.storage.GetLastByName(p.config.CAName)
 	if err != nil {
 		return nil, err
@@ -177,6 +189,9 @@ func (p *PKI) GenCRL() ([]byte, error) {
 // Call this only after verifying that the current CRL state is acceptable;
 // the next GenCRL will restart the CRL number at 1.
 func (p *PKI) ResetCRL() error {
+	if !p.bound() {
+		return withUpdateError(p, func(bound *PKI) error { return bound.ResetCRL() })
+	}
 	// CRLHolder implementations that store to a file expose a Delete method.
 	type deleter interface {
 		Delete() error
@@ -190,6 +205,9 @@ func (p *PKI) ResetCRL() error {
 
 // IsRevoked reports whether the certificate with the given serial is revoked.
 func (p *PKI) IsRevoked(serial *big.Int) (bool, error) {
+	if !p.bound() {
+		return withView(p, func(bound *PKI) (bool, error) { return bound.IsRevoked(serial) })
+	}
 	crl, err := p.crlHolder.Get()
 	if err != nil {
 		return false, err

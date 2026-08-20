@@ -113,6 +113,9 @@ func (e *certPutFailKeyStorage) GetByName(name string) ([]*cert.Pair, error) {
 func (e *certPutFailKeyStorage) GetBySerial(serial *big.Int) (*cert.Pair, error) {
 	return e.inner.GetBySerial(serial)
 }
+func (e *certPutFailKeyStorage) GetPrivateKey(name string) ([]byte, error) {
+	return e.inner.GetPrivateKey(name)
+}
 func (e *certPutFailKeyStorage) DeleteByName(name string) error {
 	return e.inner.DeleteByName(name)
 }
@@ -141,8 +144,7 @@ var errDiskFull = errors.New("simulated disk full")
 
 // newTestPKI creates a PKI instance backed by in-memory storage.
 func newTestPKI(cfg pki.Config) *pki.PKI {
-	ks, cs, idx, sp, crl := memory.New()
-	p, err := pki.New(cfg, ks, cs, idx, sp, crl)
+	p, err := pki.NewWithMemory(cfg)
 	if err != nil {
 		panic(err)
 	}
@@ -151,7 +153,7 @@ func newTestPKI(cfg pki.Config) *pki.PKI {
 
 func mustNewPKI(t *testing.T, cfg pki.Config, ks storage.KeyStorage, cs storage.CSRStorage, idx storage.IndexDB, sp storage.SerialProvider, crl storage.CRLHolder) *pki.PKI {
 	t.Helper()
-	p, err := pki.New(cfg, ks, cs, idx, sp, crl)
+	p, err := pki.New(cfg, newTestBackend(ks, cs, idx, sp, crl))
 	require.NoError(t, err)
 	return p
 }
@@ -536,7 +538,7 @@ func TestSignReq_PathTraversalInName(t *testing.T) {
 
 	csrPEM, err := p.GenReq("legit")
 	require.NoError(t, err)
-	require.NoError(t, cs.PutCSR("../evil", csrPEM))
+	require.Error(t, cs.PutCSR("../evil", csrPEM))
 
 	_, err = p.SignReq("../evil", cert.CertTypeClient)
 	assert.Error(t, err,

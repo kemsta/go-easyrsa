@@ -10,6 +10,11 @@ package legacy
 
 import (
 	"crypto/x509"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -20,7 +25,6 @@ import (
 
 	"github.com/kemsta/go-easyrsa/v2/cert"
 	"github.com/kemsta/go-easyrsa/v2/storage"
-	fsstore "github.com/kemsta/go-easyrsa/v2/storage/fs"
 )
 
 // KeyStorage implements storage.KeyStorage for the legacy v1 filesystem layout.
@@ -71,7 +75,21 @@ func (ks *KeyStorage) GetLastByName(name string) (*cert.Pair, error) {
 	return clonePair(pairs[len(pairs)-1]), nil
 }
 
+func (ks *KeyStorage) GetPrivateKey(name string) ([]byte, error) {
+	pair, err := ks.GetLastByName(name)
+	if err != nil {
+		return nil, err
+	}
+	if len(pair.KeyPEM) == 0 {
+		return nil, storage.ErrNotFound
+	}
+	return append([]byte(nil), pair.KeyPEM...), nil
+}
+
 func (ks *KeyStorage) GetBySerial(serial *big.Int) (*cert.Pair, error) {
+	if err := storage.ValidateSerial(serial); err != nil {
+		return nil, err
+	}
 	ks.mu.RLock()
 	defer ks.mu.RUnlock()
 	pairs, err := ks.scanAll()
@@ -130,18 +148,45 @@ func (ks *KeyStorage) scanAll() ([]*cert.Pair, error) {
 }
 
 func (ks *KeyStorage) scanName(name string) ([]*cert.Pair, error) {
-	dir := filepath.Join(ks.pkiDir, name)
-	entries, err := os.ReadDir(dir)
+	root, err := os.OpenRoot(ks.pkiDir)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return nil, storage.ErrNotFound
 		}
+		return nil, err
+	}
+	defer root.Close()
+
+	dirInfo, err := root.Lstat(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, storage.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !dirInfo.IsDir() || dirInfo.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("storage/legacy: entity path is not a directory: %s", name)
+	}
+	directory, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer directory.Close()
+	openedDirInfo, err := directory.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !openedDirInfo.IsDir() || !os.SameFile(dirInfo, openedDirInfo) {
+		return nil, fmt.Errorf("storage/legacy: entity directory changed while opening: %s", name)
+	}
+	entries, err := directory.ReadDir(-1)
+	if err != nil {
 		return nil, err
 	}
 
 	var pairs []*cert.Pair
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".crt") {
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !strings.HasSuffix(entry.Name(), ".crt") {
 			continue
 		}
 		serialHex := strings.TrimSuffix(entry.Name(), ".crt")
@@ -149,16 +194,16 @@ func (ks *KeyStorage) scanName(name string) ([]*cert.Pair, error) {
 			continue
 		}
 
-		certPEM, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		certPEM, err := readLegacyRegular(root, filepath.Join(name, entry.Name()))
 		if err != nil {
 			return nil, err
 		}
 		pair := &cert.Pair{Name: name, CertPEM: certPEM}
 
-		keyPath := filepath.Join(dir, serialHex+".key")
-		if keyPEM, err := os.ReadFile(keyPath); err == nil {
+		keyName := filepath.Join(name, serialHex+".key")
+		if keyPEM, err := readLegacyRegular(root, keyName); err == nil {
 			pair.KeyPEM = keyPEM
-		} else if !os.IsNotExist(err) {
+		} else if !errors.Is(err, fs.ErrNotExist) {
 			return nil, err
 		}
 
@@ -167,6 +212,29 @@ func (ks *KeyStorage) scanName(name string) ([]*cert.Pair, error) {
 
 	sortPairs(pairs)
 	return clonePairs(pairs), nil
+}
+
+func readLegacyRegular(root *os.Root, name string) (data []byte, err error) {
+	pathInfo, err := root.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !pathInfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("storage/legacy: file is not regular: %s", name)
+	}
+	file, err := openLegacyRegular(root, name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, file.Close()) }()
+	openedInfo, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !openedInfo.Mode().IsRegular() || !os.SameFile(pathInfo, openedInfo) {
+		return nil, fmt.Errorf("storage/legacy: file changed while opening: %s", name)
+	}
+	return io.ReadAll(file)
 }
 
 func sortPairs(pairs []*cert.Pair) {
@@ -345,14 +413,11 @@ func (sp *SerialProvider) Next() (*big.Int, error) {
 }
 
 // CRLHolder provides read-only access to pkiDir/crl.pem.
-type CRLHolder struct {
-	pkiDir string
-	reader storage.CRLHolder
-}
+type CRLHolder struct{ pkiDir string }
 
 // NewCRLHolder creates a read-only CRLHolder backed by pkiDir/crl.pem.
 func NewCRLHolder(pkiDir string) *CRLHolder {
-	return &CRLHolder{pkiDir: pkiDir, reader: fsstore.NewCRLHolder(pkiDir)}
+	return &CRLHolder{pkiDir: pkiDir}
 }
 
 func (ch *CRLHolder) Empty() (bool, error) { return OwnershipProbe{Dir: ch.pkiDir}.Empty() }
@@ -363,7 +428,26 @@ func (ch *CRLHolder) Put(_ []byte) error {
 }
 
 func (ch *CRLHolder) Get() (*x509.RevocationList, error) {
-	return ch.reader.Get()
+	root, err := os.OpenRoot(ch.pkiDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return &x509.RevocationList{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	data, err := readLegacyRegular(root, "crl.pem")
+	if errors.Is(err, fs.ErrNotExist) {
+		return &x509.RevocationList{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, errors.New("crl: file exists but contains no valid PEM block")
+	}
+	return x509.ParseRevocationList(block.Bytes)
 }
 
 var (

@@ -10,13 +10,11 @@ import (
 
 	certpkg "github.com/kemsta/go-easyrsa/v2/cert"
 	"github.com/kemsta/go-easyrsa/v2/pki"
-	"github.com/kemsta/go-easyrsa/v2/storage/memory"
 )
 
 func newTestPKI(t *testing.T) *pki.PKI {
 	t.Helper()
-	ks, cs, idx, sp, crl := memory.New()
-	pk, err := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+	pk, err := pki.NewWithMemory(pki.Config{NoPass: true})
 	require.NoError(t, err)
 	return pk
 }

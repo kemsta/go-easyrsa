@@ -89,6 +89,7 @@ type KeyStorage interface {
 	GetByName(name string) ([]*cert.Pair, error)   // returns ErrNotFound if none
 	GetLastByName(name string) (*cert.Pair, error) // highest serial; ErrNotFound if none
 	GetBySerial(serial *big.Int) (*cert.Pair, error)
+	GetPrivateKey(name string) ([]byte, error)
 	DeleteByName(name string) error
 	DeleteBySerial(serial *big.Int) error
 	GetAll() ([]*cert.Pair, error)

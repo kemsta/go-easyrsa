@@ -13,7 +13,6 @@ import (
 	"github.com/kemsta/go-easyrsa/v2/cert"
 	pkicrypto "github.com/kemsta/go-easyrsa/v2/crypto"
 	"github.com/kemsta/go-easyrsa/v2/pki"
-	"github.com/kemsta/go-easyrsa/v2/storage/memory"
 )
 
 // LegacyFixture contains a v1-style PKI tree written to disk for tests.
@@ -36,8 +35,7 @@ type LegacyFixture struct {
 func WriteLegacyFixture(t *testing.T, dir string) LegacyFixture {
 	t.Helper()
 
-	ks, cs, idx, sp, crl := memory.New()
-	p, err := pki.New(pki.Config{NoPass: true, SequentialSerial: true, KeyAlgo: pki.AlgoRSA, KeySize: 1024}, ks, cs, idx, sp, crl)
+	p, err := pki.NewWithMemory(pki.Config{NoPass: true, SequentialSerial: true, KeyAlgo: pki.AlgoRSA, KeySize: 1024})
 	mustNoError(t, err)
 
 	caPair, err := p.BuildCA()

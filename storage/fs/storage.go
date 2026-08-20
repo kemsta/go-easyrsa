@@ -85,6 +85,12 @@ func (ks *KeyStorage) nameSidecarPath(serial *big.Int) string {
 }
 
 func (ks *KeyStorage) Put(pair *cert.Pair) error {
+	if pair == nil {
+		return errors.New("storage/fs: nil certificate pair")
+	}
+	if err := storage.ValidateEntityName(pair.Name); err != nil {
+		return err
+	}
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
 	if pair.CertPEM != nil {
@@ -111,6 +117,9 @@ func (ks *KeyStorage) Put(pair *cert.Pair) error {
 }
 
 func (ks *KeyStorage) GetLastByName(name string) (*cert.Pair, error) {
+	if err := storage.ValidateEntityName(name); err != nil {
+		return nil, err
+	}
 	ks.mu.RLock()
 	defer ks.mu.RUnlock()
 	return ks.getLastByNameLocked(name)
@@ -169,6 +178,9 @@ func (ks *KeyStorage) getFromRevoked(name string) (*cert.Pair, error) {
 }
 
 func (ks *KeyStorage) GetByName(name string) ([]*cert.Pair, error) {
+	if err := storage.ValidateEntityName(name); err != nil {
+		return nil, err
+	}
 	ks.mu.RLock()
 	defer ks.mu.RUnlock()
 	pair, err := ks.getLastByNameLocked(name)
@@ -179,6 +191,9 @@ func (ks *KeyStorage) GetByName(name string) ([]*cert.Pair, error) {
 }
 
 func (ks *KeyStorage) GetBySerial(serial *big.Int) (*cert.Pair, error) {
+	if err := storage.ValidateSerial(serial); err != nil {
+		return nil, err
+	}
 	ks.mu.RLock()
 	defer ks.mu.RUnlock()
 	certPEM, err := os.ReadFile(ks.serialPath(serial))
@@ -206,6 +221,9 @@ func (ks *KeyStorage) GetBySerial(serial *big.Int) (*cert.Pair, error) {
 			name = n
 		}
 	}
+	if err := storage.ValidateEntityName(name); err != nil {
+		return nil, fmt.Errorf("storage/fs: invalid stored entity name: %w", err)
+	}
 	pair := &cert.Pair{Name: name, CertPEM: certPEM}
 	if keyPEM, err := os.ReadFile(ks.keyPath(name)); err == nil {
 		pair.KeyPEM = keyPEM
@@ -213,7 +231,17 @@ func (ks *KeyStorage) GetBySerial(serial *big.Int) (*cert.Pair, error) {
 	return pair, nil
 }
 
+func (ks *KeyStorage) GetPrivateKey(name string) ([]byte, error) {
+	if err := storage.ValidateEntityName(name); err != nil {
+		return nil, err
+	}
+	return readLifecycleFile(ks.keyPath(name))
+}
+
 func (ks *KeyStorage) DeleteByName(name string) error {
+	if err := storage.ValidateEntityName(name); err != nil {
+		return err
+	}
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
 	pair, err := ks.getLastByNameLocked(name)
@@ -235,6 +263,9 @@ func (ks *KeyStorage) DeleteByName(name string) error {
 }
 
 func (ks *KeyStorage) DeleteBySerial(serial *big.Int) error {
+	if err := storage.ValidateSerial(serial); err != nil {
+		return err
+	}
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
 	if err := os.Remove(ks.serialPath(serial)); err != nil && !os.IsNotExist(err) {
@@ -372,6 +403,9 @@ func (ks *KeyStorage) GetAll() ([]*cert.Pair, error) {
 				name = n
 			}
 		}
+		if err := storage.ValidateEntityName(name); err != nil {
+			return nil, fmt.Errorf("storage/fs: invalid stored entity name: %w", err)
+		}
 
 		pair := &cert.Pair{Name: name, CertPEM: certPEM}
 		if keyPEM, err := os.ReadFile(ks.keyPath(name)); err == nil {
@@ -447,10 +481,16 @@ func (cs *CSRStorage) reqPath(name string) string {
 }
 
 func (cs *CSRStorage) PutCSR(name string, csrPEM []byte) error {
+	if err := storage.ValidateEntityName(name); err != nil {
+		return err
+	}
 	return writeFile(cs.reqPath(name), csrPEM)
 }
 
 func (cs *CSRStorage) GetCSR(name string) ([]byte, error) {
+	if err := storage.ValidateEntityName(name); err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(cs.reqPath(name))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -462,6 +502,9 @@ func (cs *CSRStorage) GetCSR(name string) ([]byte, error) {
 }
 
 func (cs *CSRStorage) DeleteCSR(name string) error {
+	if err := storage.ValidateEntityName(name); err != nil {
+		return err
+	}
 	err := os.Remove(cs.reqPath(name))
 	if err != nil && os.IsNotExist(err) {
 		return storage.ErrNotFound
