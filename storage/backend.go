@@ -18,6 +18,7 @@ type Backend interface {
 // Components exposes the independently testable storage facets available
 // inside a backend view or update transaction.
 type Components interface {
+	Empty() (bool, error)
 	Keys() KeyStorage
 	CSRs() CSRStorage
 	Index() IndexDB

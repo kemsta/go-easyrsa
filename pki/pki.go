@@ -23,6 +23,7 @@ type PKI struct {
 	// The low-level fields are populated only on an ephemeral PKI copy bound to
 	// a backend View or Update callback. Public calls on the durable PKI enter a
 	// backend boundary before using them.
+	components storage.Components
 	storage    storage.KeyStorage
 	csrStorage storage.CSRStorage
 	index      storage.IndexDB

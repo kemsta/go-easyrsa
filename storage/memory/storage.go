@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"math/big"
 	"sync"
 	"time"
@@ -216,11 +217,24 @@ func (ks *KeyStorage) GetBySerial(serial *big.Int) (*cert.Pair, error) {
 	}
 	ks.s.mu.RLock()
 	defer ks.s.mu.RUnlock()
-	pair, ok := ks.s.bySerial[hexSerial(serial)]
+	serialKey := hexSerial(serial)
+	pair, ok := ks.s.bySerial[serialKey]
 	if !ok {
 		return nil, storage.ErrNotFound
 	}
-	return clonePair(pair), nil
+	return ks.cloneHistoricalPair(pair, serialKey), nil
+}
+
+func (ks *KeyStorage) cloneHistoricalPair(pair *cert.Pair, serialKey string) *cert.Pair {
+	cloned := clonePair(pair)
+	cloned.KeyPEM = nil
+	pairs := ks.s.pairs[pair.Name]
+	if !ks.s.unavailable[pair.Name] && len(pairs) > 0 && pairs[len(pairs)-1] == pair {
+		cloned.KeyPEM = cloneBytes(pair.KeyPEM)
+	} else if ks.s.revokedAssetsArchived[serialKey] {
+		cloned.KeyPEM = cloneBytes(ks.s.revokedKeys[serialKey])
+	}
+	return cloned
 }
 
 func (ks *KeyStorage) DeleteByName(name string) error {
@@ -275,7 +289,12 @@ func (ks *KeyStorage) GetAll() ([]*cert.Pair, error) {
 	var result []*cert.Pair
 	for _, pairs := range ks.s.pairs {
 		for _, pair := range pairs {
-			result = append(result, clonePair(pair))
+			serial, err := pair.Serial()
+			if err != nil {
+				result = append(result, clonePair(pair))
+				continue
+			}
+			result = append(result, ks.cloneHistoricalPair(pair, hexSerial(serial)))
 		}
 	}
 	return result, nil
@@ -352,9 +371,13 @@ func (db *IndexDB) Empty() (bool, error) {
 func (db *IndexDB) Owned() (bool, error) { return true, nil }
 
 func (db *IndexDB) Record(entry storage.IndexEntry) error {
+	cloned, err := cloneIndexEntryChecked(entry)
+	if err != nil {
+		return fmt.Errorf("storage/memory: clone index entry: %w", err)
+	}
 	db.s.mu.Lock()
 	defer db.s.mu.Unlock()
-	db.s.entries = append(db.s.entries, cloneIndexEntry(entry))
+	db.s.entries = append(db.s.entries, cloned)
 	return nil
 }
 
@@ -375,9 +398,13 @@ func (db *IndexDB) Update(serial *big.Int, status storage.CertStatus, revokedAt 
 }
 
 func (db *IndexDB) RecordAndUpdate(newEntry storage.IndexEntry, oldSerial *big.Int, status storage.CertStatus, revokedAt time.Time, reason cert.RevocationReason) error {
+	cloned, err := cloneIndexEntryChecked(newEntry)
+	if err != nil {
+		return fmt.Errorf("storage/memory: clone index entry: %w", err)
+	}
 	db.s.mu.Lock()
 	defer db.s.mu.Unlock()
-	db.s.entries = append(db.s.entries, cloneIndexEntry(newEntry))
+	db.s.entries = append(db.s.entries, cloned)
 	for i, e := range db.s.entries {
 		if e.Serial.Cmp(oldSerial) == 0 {
 			db.s.entries[i].Status = status

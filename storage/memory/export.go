@@ -15,14 +15,12 @@ func (ks *KeyStorage) ExportPairs(yield func(*cert.Pair) error) error {
 	var pairs []*cert.Pair
 	for _, byName := range ks.s.pairs {
 		for _, pair := range byName {
-			cp := &cert.Pair{Name: pair.Name}
-			if pair.CertPEM != nil {
-				cp.CertPEM = append([]byte(nil), pair.CertPEM...)
+			serial, err := pair.Serial()
+			if err != nil {
+				pairs = append(pairs, clonePair(pair))
+				continue
 			}
-			if pair.KeyPEM != nil {
-				cp.KeyPEM = append([]byte(nil), pair.KeyPEM...)
-			}
-			pairs = append(pairs, cp)
+			pairs = append(pairs, ks.cloneHistoricalPair(pair, hexSerial(serial)))
 		}
 	}
 

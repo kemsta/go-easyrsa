@@ -105,10 +105,12 @@ func TestBackendReturnsDeepCopies(t *testing.T) {
 		return components.Index().Record(storage.IndexEntry{
 			Status: storage.StatusValid,
 			Serial: big.NewInt(9),
-			Subject: pkix.Name{ExtraNames: []pkix.AttributeTypeAndValue{{
-				Type:  asn1.ObjectIdentifier{1, 2, 3, 4},
-				Value: []byte("mutable"),
-			}}},
+			Subject: pkix.Name{ExtraNames: []pkix.AttributeTypeAndValue{
+				{Type: asn1.ObjectIdentifier{1, 2, 3, 4}, Value: []byte("mutable")},
+				{Type: asn1.ObjectIdentifier{1, 2, 3, 5}, Value: asn1.BitString{Bytes: []byte{1, 2}, BitLength: 16}},
+				{Type: asn1.ObjectIdentifier{1, 2, 3, 6}, Value: big.NewInt(44)},
+				{Type: asn1.ObjectIdentifier{1, 2, 3, 7}, Value: map[string][]byte{"nested": {3, 4}}},
+			}},
 		})
 	}))
 	input[0] = 'X'
@@ -122,6 +124,10 @@ func TestBackendReturnsDeepCopies(t *testing.T) {
 		entries[0].Serial.SetInt64(100)
 		entries[0].Subject.ExtraNames[0].Type[0] = 9
 		entries[0].Subject.ExtraNames[0].Value.([]byte)[0] = 'X'
+		bitString := entries[0].Subject.ExtraNames[1].Value.(asn1.BitString)
+		bitString.Bytes[0] = 9
+		entries[0].Subject.ExtraNames[2].Value.(*big.Int).SetInt64(99)
+		entries[0].Subject.ExtraNames[3].Value.(map[string][]byte)["nested"][0] = 9
 		return nil
 	}))
 
@@ -134,6 +140,9 @@ func TestBackendReturnsDeepCopies(t *testing.T) {
 		require.Equal(t, big.NewInt(9), entries[0].Serial)
 		require.Equal(t, asn1.ObjectIdentifier{1, 2, 3, 4}, entries[0].Subject.ExtraNames[0].Type)
 		require.Equal(t, []byte("mutable"), entries[0].Subject.ExtraNames[0].Value)
+		require.Equal(t, []byte{1, 2}, entries[0].Subject.ExtraNames[1].Value.(asn1.BitString).Bytes)
+		require.Equal(t, big.NewInt(44), entries[0].Subject.ExtraNames[2].Value)
+		require.Equal(t, []byte{3, 4}, entries[0].Subject.ExtraNames[3].Value.(map[string][]byte)["nested"])
 		return nil
 	}))
 }
@@ -170,6 +179,52 @@ func TestBackendReissueUsesPendingKeyAfterRevocation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, requestPublic, certificatePublic)
 	require.NotEmpty(t, newPair.KeyPEM)
+}
+
+func TestIndexRejectsCyclicMutableAttributes(t *testing.T) {
+	t.Parallel()
+
+	_, _, index, _, _ := memory.New()
+	cyclicMap := map[string]any{}
+	cyclicMap["self"] = cyclicMap
+	err := index.Record(storage.IndexEntry{
+		Status: storage.StatusValid,
+		Serial: big.NewInt(1),
+		Subject: pkix.Name{ExtraNames: []pkix.AttributeTypeAndValue{{
+			Type:  asn1.ObjectIdentifier{1, 2, 3},
+			Value: cyclicMap,
+		}}},
+	})
+	require.ErrorContains(t, err, "cyclic mutable attribute")
+
+	cyclicPointer := &cyclicAttribute{}
+	cyclicPointer.Next = cyclicPointer
+	err = index.Record(storage.IndexEntry{
+		Status: storage.StatusValid,
+		Serial: big.NewInt(2),
+		Subject: pkix.Name{ExtraNames: []pkix.AttributeTypeAndValue{{
+			Type:  asn1.ObjectIdentifier{1, 2, 4},
+			Value: cyclicPointer,
+		}}},
+	})
+	require.ErrorContains(t, err, "cyclic mutable attribute")
+}
+
+type cyclicAttribute struct{ Next *cyclicAttribute }
+
+func TestIndexRejectsUnsupportedMutableAttribute(t *testing.T) {
+	t.Parallel()
+
+	_, _, index, _, _ := memory.New()
+	err := index.Record(storage.IndexEntry{
+		Status: storage.StatusValid,
+		Serial: big.NewInt(1),
+		Subject: pkix.Name{ExtraNames: []pkix.AttributeTypeAndValue{{
+			Type:  asn1.ObjectIdentifier{1, 2, 3},
+			Value: make(chan int),
+		}}},
+	})
+	require.Error(t, err)
 }
 
 func TestBackendRejectsInvalidArtifactVisibility(t *testing.T) {

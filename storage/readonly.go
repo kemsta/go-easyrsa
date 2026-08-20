@@ -17,6 +17,7 @@ func ReadOnlyComponents(components Components) Components {
 
 type readOnlyComponents struct{ components Components }
 
+func (c *readOnlyComponents) Empty() (bool, error) { return c.components.Empty() }
 func (c *readOnlyComponents) Keys() KeyStorage {
 	return readOnlyKeyStorage{reader: c.components.Keys()}
 }

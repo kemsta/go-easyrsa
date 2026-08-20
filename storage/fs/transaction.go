@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"sort"
 	"strings"
@@ -362,11 +363,17 @@ func pathDepth(name string) int {
 	return strings.Count(filepath.Clean(name), string(filepath.Separator))
 }
 
+type journalIdentity struct {
+	Device uint64 `json:"device"`
+	File   uint64 `json:"file"`
+}
+
 type journalEntry struct {
-	Directory bool   `json:"directory"`
-	Mode      uint32 `json:"mode"`
-	Size      int64  `json:"size,omitempty"`
-	SHA256    string `json:"sha256,omitempty"`
+	Directory bool             `json:"directory"`
+	Mode      uint32           `json:"mode"`
+	Size      int64            `json:"size,omitempty"`
+	SHA256    string           `json:"sha256,omitempty"`
+	Identity  *journalIdentity `json:"identity,omitempty"`
 }
 
 type journalAction struct {
@@ -374,6 +381,7 @@ type journalAction struct {
 	Original *journalEntry `json:"original,omitempty"`
 	Desired  *journalEntry `json:"desired,omitempty"`
 	Backup   string        `json:"backup,omitempty"`
+	Applied  bool          `json:"applied,omitempty"`
 }
 
 type journalManifest struct {
@@ -385,9 +393,10 @@ type journalManifest struct {
 }
 
 type transactionJournal struct {
-	path     string
-	manifest journalManifest
-	parents  map[string]struct{}
+	path      string
+	manifest  journalManifest
+	parents   map[string]struct{}
+	installed map[int]fs.FileInfo
 }
 
 func newTransactionJournal(root, work string) (*transactionJournal, error) {
@@ -421,41 +430,110 @@ func (j *transactionJournal) persist() error {
 	return writeAtomicMode(filepath.Join(j.path, "manifest.json"), data, 0o600)
 }
 
-func (j *transactionJournal) record(relative string, original, desired *treeEntry) error {
+func (j *transactionJournal) record(relative string, original, desired *treeEntry) (int, error) {
 	if relative != "." {
 		if err := validateRelativeTreePath(relative); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	action := journalAction{Relative: relative, Original: journalEntryFromTree(original), Desired: journalEntryFromTree(desired)}
+	action := journalAction{Relative: relative, Original: journalEntryFromTree(original, true), Desired: journalEntryFromTree(desired, false)}
 	if original != nil && !original.isDir {
 		name := filepath.Join(j.manifest.Root, relative)
 		if err := verifyCurrentEntry(name, *original); err != nil {
-			return err
+			return 0, err
 		}
 		backupRelative := filepath.Join("backups", relative)
 		backup := filepath.Join(j.path, backupRelative)
 		if _, err := copyAndHashRegularFile(name, backup, original.info); err != nil {
-			return err
+			return 0, err
 		}
 		action.Backup = backupRelative
 		if err := syncDirectory(filepath.Dir(backup)); err != nil {
-			return err
+			return 0, err
 		}
 	}
 	j.manifest.Actions = append(j.manifest.Actions, action)
-	return j.persist()
+	index := len(j.manifest.Actions) - 1
+	return index, j.persist()
 }
 
-func journalEntryFromTree(entry *treeEntry) *journalEntry {
+func journalEntryFromTree(entry *treeEntry, includeIdentity bool) *journalEntry {
 	if entry == nil {
 		return nil
 	}
 	result := &journalEntry{Directory: entry.isDir, Mode: uint32(entry.mode.Perm()), Size: entry.size}
+	if includeIdentity {
+		result.Identity = journalIdentityFromInfo(entry.info)
+	}
 	if !entry.isDir {
 		result.SHA256 = hex.EncodeToString(entry.hash[:])
 	}
 	return result
+}
+
+func journalIdentityFromInfo(info fs.FileInfo) *journalIdentity {
+	if info == nil || info.Sys() == nil {
+		return nil
+	}
+	value := reflect.ValueOf(info.Sys())
+	for value.Kind() == reflect.Pointer || value.Kind() == reflect.Interface {
+		if value.IsNil() {
+			return nil
+		}
+		value = value.Elem()
+	}
+	if value.Kind() != reflect.Struct {
+		return nil
+	}
+	device, deviceOK := reflectedUint(value.FieldByName("Dev"))
+	file, fileOK := reflectedUint(value.FieldByName("Ino"))
+	if !deviceOK || !fileOK {
+		return nil
+	}
+	return &journalIdentity{Device: device, File: file}
+}
+
+func reflectedUint(value reflect.Value) (uint64, bool) {
+	if !value.IsValid() {
+		return 0, false
+	}
+	switch value.Kind() {
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return value.Uint(), true
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		integer := value.Int()
+		if integer < 0 {
+			return 0, false
+		}
+		return uint64(integer), true
+	default:
+		return 0, false
+	}
+}
+
+func (j *transactionJournal) markApplied(index int, name string, expected fs.FileInfo) error {
+	info, err := os.Lstat(name)
+	if err != nil {
+		return err
+	}
+	if expected != nil && !os.SameFile(expected, info) {
+		return fmt.Errorf("storage/fs: installed path identity changed before journaling: %w", storage.ErrConflict)
+	}
+	if j.installed == nil {
+		j.installed = make(map[int]fs.FileInfo)
+	}
+	j.installed[index] = info
+	action := &j.manifest.Actions[index]
+	action.Applied = true
+	if action.Desired != nil {
+		action.Desired.Identity = journalIdentityFromInfo(info)
+	}
+	return j.persist()
+}
+
+func (j *transactionJournal) markDeleted(index int) error {
+	j.manifest.Actions[index].Applied = true
+	return j.persist()
 }
 
 func (j *transactionJournal) addDirectory(relative string, desired treeEntry) error {
@@ -465,7 +543,8 @@ func (j *transactionJournal) addDirectory(relative string, desired treeEntry) er
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	if err := j.record(relative, nil, &desired); err != nil {
+	actionIndex, err := j.record(relative, nil, &desired)
+	if err != nil {
 		return err
 	}
 	if _, err := os.Lstat(name); err == nil {
@@ -477,7 +556,7 @@ func (j *transactionJournal) addDirectory(relative string, desired treeEntry) er
 		return err
 	}
 	j.addParent(name)
-	return nil
+	return j.markApplied(actionIndex, name, nil)
 }
 
 func (j *transactionJournal) chmodDirectory(relative string, original, desired treeEntry) error {
@@ -485,7 +564,8 @@ func (j *transactionJournal) chmodDirectory(relative string, original, desired t
 	if err := verifyCurrentEntry(name, original); err != nil {
 		return err
 	}
-	if err := j.record(relative, &original, &desired); err != nil {
+	actionIndex, err := j.record(relative, &original, &desired)
+	if err != nil {
 		return err
 	}
 	if err := verifyCurrentEntry(name, original); err != nil {
@@ -495,7 +575,7 @@ func (j *transactionJournal) chmodDirectory(relative string, original, desired t
 		return err
 	}
 	j.addParent(name)
-	return nil
+	return j.markApplied(actionIndex, name, nil)
 }
 
 func (j *transactionJournal) writeFile(relative string, original *treeEntry, source string, desired treeEntry) error {
@@ -509,7 +589,8 @@ func (j *transactionJournal) writeFile(relative string, original *treeEntry, sou
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	if err := j.record(relative, original, &desired); err != nil {
+	actionIndex, err := j.record(relative, original, &desired)
+	if err != nil {
 		return err
 	}
 	if original != nil {
@@ -528,11 +609,18 @@ func (j *transactionJournal) writeFile(relative string, original *treeEntry, sou
 	if sha256.Sum256(data) != desired.hash {
 		return fmt.Errorf("storage/fs: staged file changed before commit: %s", relative)
 	}
-	if err := writeAtomicMode(name, data, desired.mode); err != nil {
-		return err
+	writeErr := writeAtomicMode(name, data, desired.mode)
+	current, currentInfo, exists, inspectErr := journalEntryAt(name)
+	installed := exists && j.manifest.Actions[actionIndex].Desired != nil && journalEntriesEqual(current, *j.manifest.Actions[actionIndex].Desired)
+	if installed {
+		j.addParent(name)
+		markErr := j.markApplied(actionIndex, name, currentInfo)
+		return errors.Join(writeErr, inspectErr, markErr)
 	}
-	j.addParent(name)
-	return nil
+	if writeErr != nil || inspectErr != nil {
+		return errors.Join(writeErr, inspectErr)
+	}
+	return fmt.Errorf("storage/fs: transaction write was not installed: %s", relative)
 }
 
 func (j *transactionJournal) deleteFile(relative string, original treeEntry) error {
@@ -540,7 +628,8 @@ func (j *transactionJournal) deleteFile(relative string, original treeEntry) err
 	if err := verifyCurrentEntry(name, original); err != nil {
 		return err
 	}
-	if err := j.record(relative, &original, nil); err != nil {
+	actionIndex, err := j.record(relative, &original, nil)
+	if err != nil {
 		return err
 	}
 	if err := verifyCurrentEntry(name, original); err != nil {
@@ -550,7 +639,7 @@ func (j *transactionJournal) deleteFile(relative string, original treeEntry) err
 		return err
 	}
 	j.addParent(name)
-	return nil
+	return j.markDeleted(actionIndex)
 }
 
 func (j *transactionJournal) deleteDirectory(relative string, original treeEntry) error {
@@ -558,7 +647,8 @@ func (j *transactionJournal) deleteDirectory(relative string, original treeEntry
 	if err := verifyCurrentEntry(name, original); err != nil {
 		return err
 	}
-	if err := j.record(relative, &original, nil); err != nil {
+	actionIndex, err := j.record(relative, &original, nil)
+	if err != nil {
 		return err
 	}
 	if err := verifyCurrentEntry(name, original); err != nil {
@@ -568,7 +658,7 @@ func (j *transactionJournal) deleteDirectory(relative string, original treeEntry
 		return err
 	}
 	j.addParent(name)
-	return nil
+	return j.markDeleted(actionIndex)
 }
 
 func (j *transactionJournal) markCommitted() error {
@@ -579,39 +669,58 @@ func (j *transactionJournal) markCommitted() error {
 func (j *transactionJournal) rollback() error {
 	var rollbackErrors []error
 	for i := len(j.manifest.Actions) - 1; i >= 0; i-- {
-		rollbackErrors = append(rollbackErrors, j.rollbackAction(j.manifest.Actions[i]))
+		rollbackErrors = append(rollbackErrors, j.rollbackAction(i, j.manifest.Actions[i]))
 	}
 	rollbackErrors = append(rollbackErrors, j.syncParents())
 	return errors.Join(rollbackErrors...)
 }
 
-func (j *transactionJournal) rollbackAction(action journalAction) error {
+func (j *transactionJournal) rollbackAction(index int, action journalAction) error {
 	name := filepath.Join(j.manifest.Root, action.Relative)
-	current, exists, err := journalEntryAt(name)
+	current, _, exists, err := journalEntryAt(name)
 	if err != nil {
 		return err
 	}
-	matchesOriginal := exists && action.Original != nil && journalEntriesEqual(current, *action.Original)
-	matchesDesired := exists && action.Desired != nil && journalEntriesEqual(current, *action.Desired)
+	originalContent := exists && action.Original != nil && journalEntriesEqual(current, *action.Original)
+	originalIdentity := originalContent && journalIdentitiesEqual(current.Identity, action.Original.Identity)
+	desiredContent := exists && action.Desired != nil && journalEntriesEqual(current, *action.Desired)
+	desiredIdentity := desiredContent && j.installedIdentityMatches(index, name, current, action)
 
 	switch {
-	case matchesOriginal:
-		return nil // The recorded operation did not run, or was already restored.
+	case originalIdentity:
+		return nil
+	case !action.Applied && originalContent:
+		return nil // Leaving an indistinguishable replacement is always safe.
 	case action.Original == nil && !exists:
-		return nil // An addition was never installed or is already removed.
-	case action.Desired == nil && !exists:
+		return nil
+	case action.Desired == nil && !exists && action.Applied:
 		return j.restoreOriginal(name, action)
-	case matchesDesired && action.Original == nil:
+	case desiredIdentity && action.Original == nil:
 		if err := os.Remove(name); err != nil {
 			return err
 		}
 		j.addParent(name)
 		return nil
-	case matchesDesired:
+	case desiredIdentity:
 		return j.restoreOriginal(name, action)
 	default:
-		return fmt.Errorf("storage/fs: rollback path changed %s: %w", action.Relative, storage.ErrConflict)
+		return fmt.Errorf("storage/fs: rollback path identity changed %s: %w", action.Relative, storage.ErrConflict)
 	}
+}
+
+func (j *transactionJournal) installedIdentityMatches(index int, name string, current journalEntry, action journalAction) bool {
+	if installed, ok := j.installed[index]; ok {
+		info, err := os.Lstat(name)
+		return err == nil && os.SameFile(installed, info)
+	}
+	if !action.Applied {
+		return false
+	}
+	return journalIdentitiesEqual(current.Identity, action.Desired.Identity)
+}
+
+func journalIdentitiesEqual(left, right *journalIdentity) bool {
+	return left != nil && right != nil && left.Device == right.Device && left.File == right.File
 }
 
 func (j *transactionJournal) restoreOriginal(name string, action journalAction) error {
@@ -648,30 +757,35 @@ func (j *transactionJournal) restoreOriginal(name string, action journalAction) 
 	return nil
 }
 
-func journalEntryAt(name string) (journalEntry, bool, error) {
+func journalEntryAt(name string) (journalEntry, fs.FileInfo, bool, error) {
 	info, err := os.Lstat(name)
 	if errors.Is(err, fs.ErrNotExist) {
-		return journalEntry{}, false, nil
+		return journalEntry{}, nil, false, nil
 	}
 	if err != nil {
-		return journalEntry{}, false, err
+		return journalEntry{}, nil, false, err
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return journalEntry{}, false, fmt.Errorf("storage/fs: transaction path became a symbolic link: %s", name)
+		return journalEntry{}, nil, false, fmt.Errorf("storage/fs: transaction path became a symbolic link: %s", name)
 	}
-	entry := journalEntry{Directory: info.IsDir(), Mode: uint32(info.Mode().Perm()), Size: info.Size()}
+	entry := journalEntry{
+		Directory: info.IsDir(),
+		Mode:      uint32(info.Mode().Perm()),
+		Size:      info.Size(),
+		Identity:  journalIdentityFromInfo(info),
+	}
 	if info.IsDir() {
-		return entry, true, nil
+		return entry, info, true, nil
 	}
 	if !info.Mode().IsRegular() {
-		return journalEntry{}, false, fmt.Errorf("storage/fs: transaction path is not regular: %s", name)
+		return journalEntry{}, nil, false, fmt.Errorf("storage/fs: transaction path is not regular: %s", name)
 	}
 	hash, err := copyAndHashRegularFile(name, "", info)
 	if err != nil {
-		return journalEntry{}, false, err
+		return journalEntry{}, nil, false, err
 	}
 	entry.SHA256 = hex.EncodeToString(hash[:])
-	return entry, true, nil
+	return entry, info, true, nil
 }
 
 func journalEntriesEqual(left, right journalEntry) bool {

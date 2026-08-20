@@ -247,6 +247,7 @@ func newComponents(pkiDir, caName string) *components {
 	}
 }
 
+func (c *components) Empty() (bool, error)                { return semanticPKIEmpty(c.keys.pkiDir) }
 func (c *components) Keys() storage.KeyStorage            { return c.keys }
 func (c *components) CSRs() storage.CSRStorage            { return c.csrs }
 func (c *components) Index() storage.IndexDB              { return c.index }
@@ -260,6 +261,41 @@ var processBackendLocks sync.Map
 func processBackendLock(pkiDir string) *sync.RWMutex {
 	lock, _ := processBackendLocks.LoadOrStore(pkiDir, &sync.RWMutex{})
 	return lock.(*sync.RWMutex)
+}
+
+func semanticPKIEmpty(pkiDir string) (bool, error) {
+	info, err := os.Stat(pkiDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !info.IsDir() {
+		return false, fmt.Errorf("storage/fs: PKI root is not a directory")
+	}
+	empty := true
+	err = filepath.WalkDir(pkiDir, func(name string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if name == pkiDir {
+			return nil
+		}
+		relative, err := filepath.Rel(pkiDir, name)
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			switch relative {
+			case "private", "issued", "reqs", "certs_by_serial":
+				return nil
+			}
+		}
+		empty = false
+		return filepath.SkipAll
+	})
+	return empty, err
 }
 
 func acquireBackendLock(pkiDir string, shared bool) (func() error, error) {

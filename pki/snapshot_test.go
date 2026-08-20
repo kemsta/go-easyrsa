@@ -172,6 +172,37 @@ func TestSnapshotRoundTripPreservesLifecycleLocations(t *testing.T) {
 	}
 }
 
+func TestImportSnapshotRejectsNonemptyTargetBeforeConsumingStream(t *testing.T) {
+	t.Parallel()
+
+	source, err := pki.NewWithMemory(pki.Config{NoPass: true, KeyAlgo: pki.AlgoRSA, KeySize: 1024})
+	require.NoError(t, err)
+	_, err = source.BuildCA()
+	require.NoError(t, err)
+	snapshot, err := source.ExportSnapshot()
+	require.NoError(t, err)
+
+	backend := memory.NewBackend()
+	target, err := pki.New(pki.Config{NoPass: true, KeyAlgo: pki.AlgoRSA, KeySize: 1024}, backend)
+	require.NoError(t, err)
+	_, err = target.BuildCA()
+	require.NoError(t, err)
+	_, err = target.GenCRL()
+	require.NoError(t, err)
+	before, err := target.ExportSnapshot()
+	require.NoError(t, err)
+	streamCalled := false
+	err = target.ImportSnapshot(snapshot, func(func(*cert.Pair) error) error {
+		streamCalled = true
+		return nil
+	})
+	require.ErrorIs(t, err, storage.ErrConflict)
+	require.False(t, streamCalled)
+	after, err := target.ExportSnapshot()
+	require.NoError(t, err)
+	assertSnapshotEquivalent(t, before, after)
+}
+
 func TestImportSnapshot_MemoryPreservesHistoryAndStatuses(t *testing.T) {
 	dir := t.TempDir()
 	testutil.WriteLegacyFixture(t, dir)

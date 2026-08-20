@@ -1,6 +1,7 @@
 package pki_test
 
 import (
+	"errors"
 	"math/big"
 	"testing"
 
@@ -36,6 +37,25 @@ func (b *testBackend) Update(fn func(storage.Components) error) error {
 	return fn(b.components)
 }
 
+func (c *testComponents) Empty() (bool, error) {
+	pairs, err := c.keys.GetAll()
+	if err != nil {
+		return false, err
+	}
+	requests, err := c.csrs.ListCSRs()
+	if err != nil && !errors.Is(err, storage.ErrReadOnly) {
+		return false, err
+	}
+	entries, err := c.index.Query(storage.IndexFilter{})
+	if err != nil {
+		return false, err
+	}
+	crl, err := c.crls.Get()
+	if err != nil {
+		return false, err
+	}
+	return len(pairs) == 0 && len(requests) == 0 && len(entries) == 0 && len(crl.Raw) == 0, nil
+}
 func (c *testComponents) Keys() storage.KeyStorage            { return c.keys }
 func (c *testComponents) CSRs() storage.CSRStorage            { return c.csrs }
 func (c *testComponents) Index() storage.IndexDB              { return c.index }

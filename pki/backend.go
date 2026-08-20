@@ -10,6 +10,7 @@ func (p *PKI) bound() bool { return p != nil && p.storage != nil }
 
 func (p *PKI) bind(components storage.Components) *PKI {
 	bound := *p
+	bound.components = components
 	bound.storage = components.Keys()
 	bound.csrStorage = components.CSRs()
 	bound.index = components.Index()

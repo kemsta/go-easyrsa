@@ -143,7 +143,7 @@ func TestMigrate_LegacyWithMissingHistoricalKey(t *testing.T) {
 	assertPairStreamsEquivalent(t, source, target)
 }
 
-func TestImportSnapshot_IntoNonEmptyTargetIsCurrentBehavior(t *testing.T) {
+func TestImportSnapshotRejectsNonEmptyTarget(t *testing.T) {
 	sourceDir := t.TempDir()
 	testutil.WriteLegacyFixture(t, sourceDir)
 	source, err := pki.NewWithLegacyFSRO(sourceDir, pki.Config{})
@@ -158,5 +158,5 @@ func TestImportSnapshot_IntoNonEmptyTargetIsCurrentBehavior(t *testing.T) {
 	require.NoError(t, err)
 
 	err = target.ImportSnapshot(snapshot, source.ExportPairs)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, storage.ErrConflict)
 }

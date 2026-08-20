@@ -106,6 +106,13 @@ func (p *PKI) ImportSnapshot(snapshot *Snapshot, stream storage.PairStream) erro
 	if p.config.CAName != snapshot.CAName {
 		return fmt.Errorf("pki: target CAName %q does not match snapshot CAName %q", p.config.CAName, snapshot.CAName)
 	}
+	empty, err := p.components.Empty()
+	if err != nil {
+		return fmt.Errorf("pki: inspect snapshot target: %w", err)
+	}
+	if !empty {
+		return fmt.Errorf("pki: snapshot target is not empty: %w", storage.ErrConflict)
+	}
 
 	if replacer, ok := p.storage.(storage.PairReplacer); ok {
 		if err := replacer.ReplacePairs(stream); err != nil {

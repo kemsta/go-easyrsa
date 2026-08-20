@@ -37,12 +37,17 @@ func (ks *KeyStorage) ReplacePairs(stream storage.PairStream) error {
 
 // ReplaceAll replaces the full in-memory index with the supplied entries.
 func (db *IndexDB) ReplaceAll(entries []storage.IndexEntry) error {
+	cloned := make([]storage.IndexEntry, len(entries))
+	for i, entry := range entries {
+		var err error
+		cloned[i], err = cloneIndexEntryChecked(entry)
+		if err != nil {
+			return fmt.Errorf("storage/memory: clone index entry: %w", err)
+		}
+	}
 	db.s.mu.Lock()
 	defer db.s.mu.Unlock()
-	db.s.entries = make([]storage.IndexEntry, len(entries))
-	for i, entry := range entries {
-		db.s.entries[i] = cloneIndexEntry(entry)
-	}
+	db.s.entries = cloned
 	return nil
 }
 

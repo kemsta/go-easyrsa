@@ -509,40 +509,43 @@ func TestRevokeIssuedUsesStorageNameWhenCNDiffers(t *testing.T) {
 	require.Equal(t, "storage-name", revoked.Name)
 }
 
-func TestFilesystemHistoricalPairsNeverUseUnrelatedCurrentKey(t *testing.T) {
-	t.Parallel()
+func TestHistoricalPairKeySemanticsMatchWritableBackends(t *testing.T) {
+	for _, backendCase := range lifecycleBackends() {
+		backendCase := backendCase
+		t.Run(backendCase.name, func(t *testing.T) {
+			t.Parallel()
+			backend, _ := backendCase.create(t)
+			pk := newLifecyclePKI(t, backend)
+			oldRevoked, err := pk.BuildClientFull("revoked-name")
+			require.NoError(t, err)
+			oldRevokedSerial, err := oldRevoked.Serial()
+			require.NoError(t, err)
+			require.NoError(t, pk.RevokeIssued("revoked-name", cert.ReasonUnspecified))
+			newRevoked, err := pk.BuildClientFull("revoked-name")
+			require.NoError(t, err)
+			require.NotEqual(t, oldRevoked.KeyPEM, newRevoked.KeyPEM)
 
-	pkiDir := filepath.Join(t.TempDir(), "pki")
-	backend := fsstore.NewBackend(pkiDir, "ca")
-	pk := newLifecyclePKI(t, backend)
-	oldRevoked, err := pk.BuildClientFull("revoked-name")
-	require.NoError(t, err)
-	oldRevokedSerial, err := oldRevoked.Serial()
-	require.NoError(t, err)
-	require.NoError(t, pk.RevokeIssued("revoked-name", cert.ReasonUnspecified))
-	newRevoked, err := pk.BuildClientFull("revoked-name")
-	require.NoError(t, err)
-	require.NotEqual(t, oldRevoked.KeyPEM, newRevoked.KeyPEM)
+			oldExpired, err := pk.BuildClientFull("expired-name")
+			require.NoError(t, err)
+			oldExpiredSerial, err := oldExpired.Serial()
+			require.NoError(t, err)
+			require.NoError(t, pk.Expire("expired-name"))
+			newExpired, err := pk.BuildClientFull("expired-name")
+			require.NoError(t, err)
+			require.NotEqual(t, oldExpired.KeyPEM, newExpired.KeyPEM)
 
-	oldExpired, err := pk.BuildClientFull("expired-name")
-	require.NoError(t, err)
-	oldExpiredSerial, err := oldExpired.Serial()
-	require.NoError(t, err)
-	require.NoError(t, pk.Expire("expired-name"))
-	newExpired, err := pk.BuildClientFull("expired-name")
-	require.NoError(t, err)
-	require.NotEqual(t, oldExpired.KeyPEM, newExpired.KeyPEM)
-
-	require.NoError(t, backend.View(func(components storage.Components) error {
-		revokedHistory, err := components.Keys().GetBySerial(oldRevokedSerial)
-		require.NoError(t, err)
-		require.Equal(t, oldRevoked.KeyPEM, revokedHistory.KeyPEM)
-		require.NotEqual(t, newRevoked.KeyPEM, revokedHistory.KeyPEM)
-		expiredHistory, err := components.Keys().GetBySerial(oldExpiredSerial)
-		require.NoError(t, err)
-		require.Empty(t, expiredHistory.KeyPEM)
-		return nil
-	}))
+			require.NoError(t, backend.View(func(components storage.Components) error {
+				revokedHistory, err := components.Keys().GetBySerial(oldRevokedSerial)
+				require.NoError(t, err)
+				require.Equal(t, oldRevoked.KeyPEM, revokedHistory.KeyPEM)
+				require.NotEqual(t, newRevoked.KeyPEM, revokedHistory.KeyPEM)
+				expiredHistory, err := components.Keys().GetBySerial(oldExpiredSerial)
+				require.NoError(t, err)
+				require.Empty(t, expiredHistory.KeyPEM)
+				return nil
+			}))
+		})
+	}
 }
 
 func TestLifecycleArtifactFilesContainRegularCertificates(t *testing.T) {

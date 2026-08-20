@@ -59,6 +59,7 @@ type components struct {
 	lifecycle *LifecycleStorage
 }
 
+func (c *components) Empty() (bool, error)                { return OwnershipProbe{Dir: c.keys.pkiDir}.Empty() }
 func (c *components) Keys() storage.KeyStorage            { return c.keys }
 func (c *components) CSRs() storage.CSRStorage            { return c.csrs }
 func (c *components) Index() storage.IndexDB              { return c.index }

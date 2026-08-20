@@ -221,8 +221,8 @@ func TestCheckSerialReturnsDeepCopy(t *testing.T) {
 	gotOverlap := got.Subject.ExtraNames[2].Value.(overlappingSlices)
 	require.Len(t, gotOverlap.Short, 1)
 	require.Len(t, gotOverlap.Long, 2)
-	assert.Equal(t, 3, cap(gotOverlap.Short))
-	assert.Equal(t, 3, cap(gotOverlap.Long))
+	assert.Equal(t, 1, cap(gotOverlap.Short))
+	assert.Equal(t, 2, cap(gotOverlap.Long))
 	gotOverlap.Short[0] = 99
 
 	again, err := pk.CheckSerial(big.NewInt(42))
@@ -260,11 +260,11 @@ func TestCheckSerialRejectsMutableUnexportedAttributeState(t *testing.T) {
 			Value: mutableUnexportedAttribute{values: map[string]string{"key": "value"}},
 		}}},
 	}
-	require.NoError(t, idx.Record(entry))
-
-	_, err := pk.CheckSerial(big.NewInt(43))
+	err := idx.Record(entry)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "cannot clone mutable unexported field")
+	assert.Contains(t, err.Error(), "unsupported mutable attribute struct")
+	_, err = pk.CheckSerial(big.NewInt(43))
+	require.NoError(t, err)
 }
 
 type mutableUnexportedAttribute struct {

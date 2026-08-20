@@ -256,13 +256,6 @@ func (ks *KeyStorage) keyForSerial(name string, serial *big.Int) ([]byte, error)
 	if archived, err := os.ReadFile(fsJoin(ks.pkiDir, "revoked", "private_by_serial", hexSerial(serial)+".key")); err == nil {
 		return archived, nil
 	}
-	if os.IsNotExist(currentErr) {
-		if expiredPEM, err := os.ReadFile(fsJoin(ks.pkiDir, "expired", name+".crt")); err == nil {
-			if expiredSerial, parseErr := serialFromCertificatePEM(expiredPEM); parseErr == nil && expiredSerial.Cmp(serial) == 0 {
-				return os.ReadFile(ks.keyPath(name))
-			}
-		}
-	}
 	return nil, storage.ErrNotFound
 }
 
