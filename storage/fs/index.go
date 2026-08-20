@@ -317,6 +317,8 @@ func reasonString(r cert.RevocationReason) string {
 		return "superseded"
 	case cert.ReasonCessationOfOperation:
 		return "cessationOfOperation"
+	case cert.ReasonCertificateHold:
+		return "certificateHold"
 	default:
 		return "unspecified"
 	}
@@ -334,6 +336,8 @@ func parseReasonString(s string) cert.RevocationReason {
 		return cert.ReasonSuperseded
 	case "cessationOfOperation":
 		return cert.ReasonCessationOfOperation
+	case "certificateHold":
+		return cert.ReasonCertificateHold
 	default:
 		return cert.ReasonUnspecified
 	}

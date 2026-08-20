@@ -227,6 +227,11 @@ func (l *LifecycleStorage) ReplaceState(state storage.LifecycleState) error {
 				return err
 			}
 		}
+		for _, relative := range []string{filepath.Join("renewed", "issued"), filepath.Join("renewed", "certs_by_serial")} {
+			if err := root.MkdirAll(relative, 0o755); err != nil {
+				return err
+			}
+		}
 		for _, record := range state.Expired {
 			if err := writeLifecycleStateRecord(root, filepath.Join("expired", record.Name+".crt"), record, false); err != nil {
 				return err

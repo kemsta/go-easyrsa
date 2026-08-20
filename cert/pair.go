@@ -28,6 +28,7 @@ const (
 	ReasonAffiliationChanged   RevocationReason = 3
 	ReasonSuperseded           RevocationReason = 4
 	ReasonCessationOfOperation RevocationReason = 5
+	ReasonCertificateHold      RevocationReason = 6
 )
 
 // Pair holds a certificate and optionally its private key.
