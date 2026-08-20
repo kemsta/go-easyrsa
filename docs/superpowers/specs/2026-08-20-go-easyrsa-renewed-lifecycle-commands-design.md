@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved by the user after written-spec review. Ready for implementation planning.
+Implemented on the feature branch. Full local verification passed; PR and GitHub CI review remain.
 
 ## Background
 
