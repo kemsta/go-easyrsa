@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +27,26 @@ func TestRenewedCommandsRegistered(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, name, command.Name())
 	}
+}
+
+func TestRegisteredCommandSetHasExactlyThirtySixNames(t *testing.T) {
+	t.Parallel()
+	expected := []string{
+		"init-pki", "build-ca", "renew-ca", "gen-req", "import-req", "sign-req",
+		"build-client-full", "build-server-full", "build-serverClient-full",
+		"expire", "renew", "revoke", "revoke-issued", "revoke-expired", "revoke-renewed",
+		"gen-crl", "show-req", "show-cert", "show-ca", "show-crl", "show-expire",
+		"show-revoke", "show-renew", "show-eku", "verify-cert", "export-p12", "export-p7",
+		"export-p8", "export-p1", "gen-dh", "update-db", "set-pass", "serial", "check-serial",
+		"display-dn", "rand",
+	}
+	actual := make([]string, 0, len(newRootCmd().Commands()))
+	for _, command := range newRootCmd().Commands() {
+		actual = append(actual, command.Name())
+	}
+	sort.Strings(expected)
+	sort.Strings(actual)
+	require.Equal(t, expected, actual)
 }
 
 func TestCLIShowAndRevokeRenewed(t *testing.T) {

@@ -6,8 +6,8 @@ these methods: it parses argv/environment input, builds typed options, formats
 results, and maps exit status. Crypto, ASN.1, PKCS, lifecycle, locking, path
 handling, randomness, and artifact persistence live in the root library.
 
-The 34-command positive-compatibility subset is verified by E2E against pinned
-Easy-RSA v3.2.6. Ten upstream commands remain explicitly deferred. For detailed
+The 36-command positive-compatibility subset is verified by E2E against pinned
+Easy-RSA v3.2.6. Eight upstream commands remain explicitly deferred. For detailed
 CLI flag and environment coverage, see
 [`docs/go-easyrsa-cli-parity.md`](go-easyrsa-cli-parity.md).
 
@@ -29,6 +29,7 @@ CLI flag and environment coverage, see
 | `revoke` | `PKI.Revoke(name, reason)` |
 | `revoke-issued` | `PKI.RevokeIssued(name, reason)` |
 | `revoke-expired` | `PKI.RevokeExpired(name, reason)` |
+| `revoke-renewed` | `PKI.RevokeRenewed(name, reason)` |
 | `gen-crl` | `PKI.GenCRL()` |
 | `show-req` | `PKI.ShowReq(name)` and `CSR.Info()` |
 | `show-cert` | `PKI.ShowCert(name)` |
@@ -36,6 +37,7 @@ CLI flag and environment coverage, see
 | `show-crl` | `PKI.ShowCRL()` |
 | `show-expire` | `PKI.ShowExpiring(days)` |
 | `show-revoke` | `PKI.ShowRevoked()` |
+| `show-renew` | `PKI.ShowRenewed()` |
 | `show-eku` | `PKI.ShowEKU(nameOrPath)` |
 | `verify-cert` | `PKI.VerifyCert(name)` |
 | `export-p12` | `PKI.ExportP12(name, options)` |
@@ -54,8 +56,15 @@ CLI flag and environment coverage, see
 
 - `InitPKI` distinguishes fresh initialization from an explicit owned-PKI
   reset; foreign storage is never replaced.
-- `Expire`, `Renew`, `RevokeIssued`, and `RevokeExpired` perform Easy-RSA file
-  lifecycle changes and index updates in backend transactions.
+- `Expire`, `Renew`, `RevokeIssued`, `RevokeExpired`, and `RevokeRenewed`
+  perform Easy-RSA file lifecycle changes and index updates in backend
+  transactions.
+- `ShowRenewed` returns typed `RenewalInfo` values containing name, serial,
+  actual-expiry `V`/`E` status, expiry, common name, detached certificate PEM,
+  and `RequiresRewind`. Historical `renewed/certs_by_serial` records are marked
+  for rewind and remain report-only.
+- `RevokeRenewed` archives only the old renewed certificate. It preserves the
+  current replacement certificate, private key, and CSR.
 - Revoke methods do not implicitly generate a CRL. `gen-crl` is a separate
   operation, matching Easy-RSA.
 - `GenCRL`, `GenDH`, and export methods persist their fixed Easy-RSA artifacts
