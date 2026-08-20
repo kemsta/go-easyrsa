@@ -3,7 +3,7 @@ module github.com/kemsta/go-easyrsa/cmd/go-easyrsa
 go 1.25.13
 
 require (
-	github.com/kemsta/go-easyrsa/v2 v2.2.1-0.20260820121214-c356071007ba
+	github.com/kemsta/go-easyrsa/v2 v2.2.1-0.20260820132235-495813d371f0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.0
 	go.mozilla.org/pkcs7 v0.10.0
