@@ -100,9 +100,10 @@ operations require either `--passout`/`EASYRSA_PASSOUT` or an explicit
 passwordless choice (`nopass`, `--nopass`, or `EASYRSA_NO_PASS=true`).
 Passphrases loaded from the environment are not displayed as help defaults.
 
-Commands now write artifacts at the upstream PKI-relative paths: `dh.pem`,
-`crl.pem`, `private/NAME.p12`, `issued/NAME.p7b`, `private/NAME.p8`, and
-`private/NAME.p1`. Binary artifacts are not substituted through stdout.
+Library methods write artifacts at the upstream PKI-relative paths: `dh.pem`,
+`crl.pem`, `crl.der`, `private/NAME.p12`, `issued/NAME.p7b`,
+`private/NAME.p8`, and `private/NAME.p1`. The CLI only reports the resulting
+absolute path. Binary artifacts are not substituted through stdout.
 Private/public artifact modes are `0600`/`0644` on POSIX systems; Windows file
 ACLs retain the platform defaults.
 
@@ -164,11 +165,11 @@ rejections.
 ## Inspection and utility semantics
 
 `show-req`, `show-eku`, `serial`, and `check-serial` use non-initializing,
-read-only PKI access. They do not create layout directories or advance the
-serial counter. `display-dn` parses certificates and requests, while
-explicit-path `show-eku` parses certificates. Both use Go's ASN.1 and
-`crypto/x509` packages rather than an OpenSSL subprocess. `rand` streams bytes from `crypto/rand` and prints lowercase
-hex.
+read-only PKI methods. They do not create layout directories or advance the
+serial counter. `display-dn`, explicit-path `show-eku`, CSR inspection, and
+random generation are implemented by the root library; the CLI only formats
+typed results. `rand` streams lowercase hexadecimal output without opening a
+filesystem PKI.
 
 `show-eku` follows Easy-RSA's path-first behavior and falls back to a PKI entity
 name for missing or non-regular paths. Batch serial checks are silent: an
@@ -183,15 +184,23 @@ and shell error handling.
 
 ## Lifecycle compatibility
 
-The CLI follows the upstream current-file lifecycle: `expire` moves a
-certificate from `issued` to `expired`, while revoke commands archive current
-certificate/key/request files under `revoked/*_by_serial`. Mutating CLI
-commands share a sibling advisory `.<pki-name>.go-easyrsa.lock`; lifecycle
-operations additionally pre-stage no-clobber copies and verify file identity
-before source deletion or rollback. The library retains
-its safer behavior of marking superseded renewal entries non-valid; semantic
-parity treats that old-history status as an intentional internal difference
-while requiring the current certificate and command continuation to match.
+The CLI delegates lifecycle operations to transactional `PKI` methods.
+`expire` moves the issued certificate to `expired`; `renew` archives the prior
+certificate under `renewed/issued`; issued and expired revoke variants archive
+under `revoked/*_by_serial`. Backend transactions own the sibling advisory
+lock, no-clobber staging, identity checks, commit, and rollback for direct
+library and CLI callers alike. Revoke commands do not create a CRL; `gen-crl`
+is explicit. The library marks superseded renewal entries non-valid internally;
+user-facing compatibility derives old-history validity from the certificate.
+
+## CLI/library boundary
+
+Every registered command maps to a public `*pki.PKI` method. Production CLI
+code contains no lifecycle session, advisory-lock implementation, artifact
+writer, PKCS encoder, certificate/request parser for command behavior, or
+cryptographic random generator. An ordinary AST guard enforces this boundary.
+The CLI root module resolves a pushed root pseudo-version and has no local
+`replace` directive.
 
 ## E2E contract
 

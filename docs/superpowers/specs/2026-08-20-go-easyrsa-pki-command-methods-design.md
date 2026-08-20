@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved for implementation. Implementation has not started.
+Implemented on the feature branch. Final verification and PR review are in progress.
 
 ## Background
 
@@ -245,6 +245,7 @@ type Backend interface {
 }
 
 type Components interface {
+    Empty() (bool, error)
     Keys() KeyStorage
     CSRs() CSRStorage
     Index() IndexDB
@@ -255,7 +256,7 @@ type Components interface {
 }
 ```
 
-`View` provides a consistent read boundary. `Update` owns the mutation lock and automatically commits a nil callback result or rolls back an error result. `EnsureLayout` creates only missing layout elements and never removes data. `Initialize(reset)` atomically checks the namespace, rejects an existing owned PKI when reset is false, and otherwise stages replacement so it can restore the old namespace if fresh-layout creation fails.
+`Components.Empty` reports semantic state rather than layout-directory presence and lets snapshot import reject nonempty targets before consuming a pair stream. `View` provides a consistent read boundary. `Update` owns the mutation lock and automatically commits a nil callback result or rolls back an error result. `EnsureLayout` creates only missing layout elements and never removes data. `Initialize(reset)` atomically checks the namespace, rejects an existing owned PKI when reset is false, and otherwise stages replacement so it can restore the old namespace if fresh-layout creation fails.
 
 `ArtifactStorage` stores, reads, and deletes a backend-relative path together with copied bytes and a public/private visibility class. `LifecycleStorage` exposes transaction-scoped moves from issued to expired, issued to renewed, and issued/expired/renewed to revoked, plus renewed-certificate lookup. It does not update the index or generate certificates; `PKI` coordinates those domain operations through the other facets.
 
@@ -288,7 +289,7 @@ The transaction keeps enough identity and backup information to undo its own wri
 
 ### Memory backend
 
-The memory backend adds lifecycle locations, renewal history, revoked history, and named artifacts to its shared state. An update transaction works on a deep copy and swaps it into place only after success. Returned pairs, entries, RDN values, and artifact bytes are deep copies.
+Snapshots explicitly record named current certificate/key ownership plus expired, renewed, and revoked lifecycle state; import never infers current ownership from random serial ordering. The memory backend adds lifecycle locations, renewal history, revoked history, and named artifacts to its shared state. An update transaction works on a deep copy and swaps it into place only after success. Returned pairs, entries, RDN values, and artifact bytes are deep copies.
 
 Its observable command semantics match the filesystem backend even though it has no physical paths. Backend-relative artifact names remain the same.
 
