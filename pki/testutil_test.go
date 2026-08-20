@@ -95,6 +95,9 @@ func (testLifecycleStorage) GetExpiredCertificate(string) ([]byte, error) {
 func (testLifecycleStorage) GetRenewedCertificate(string) ([]byte, error) {
 	return nil, storage.ErrNotFound
 }
+func (testLifecycleStorage) ListRenewed() ([]storage.RenewalArchive, error) {
+	return nil, nil
+}
 
 func collectPairs(t *testing.T, pk *pki.PKI) []*cert.Pair {
 	t.Helper()

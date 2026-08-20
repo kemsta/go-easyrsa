@@ -117,7 +117,8 @@ func validateRevocationReason(reason cert.RevocationReason) error {
 		cert.ReasonCACompromise,
 		cert.ReasonAffiliationChanged,
 		cert.ReasonSuperseded,
-		cert.ReasonCessationOfOperation:
+		cert.ReasonCessationOfOperation,
+		cert.ReasonCertificateHold:
 		return nil
 	default:
 		return fmt.Errorf("pki: unsupported revocation reason %d", reason)

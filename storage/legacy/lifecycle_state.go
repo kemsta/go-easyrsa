@@ -26,7 +26,7 @@ func (l *LifecycleStorage) ExportState() (state storage.LifecycleState, err erro
 	if err != nil {
 		return storage.LifecycleState{}, err
 	}
-	renewed, err := exportLegacyNamedLifecycle(root, filepath.Join("renewed", "issued"))
+	renewed, err := exportLegacyRenewedLifecycle(root)
 	if err != nil {
 		return storage.LifecycleState{}, err
 	}
@@ -67,6 +67,38 @@ func exportLegacyNamedLifecycle(root *os.Root, directoryName string) (records []
 			return nil, err
 		}
 		records = append(records, storage.LifecycleRecord{Name: name, Serial: new(big.Int).Set(serial), CertificatePEM: certificatePEM})
+	}
+	sortLegacyLifecycleRecords(records)
+	return records, nil
+}
+
+func exportLegacyRenewedLifecycle(root *os.Root) ([]storage.LifecycleRecord, error) {
+	archives, err := listLegacyRenewalArchives(root)
+	if err != nil {
+		return nil, err
+	}
+	if len(archives) == 0 {
+		return nil, nil
+	}
+	records := make([]storage.LifecycleRecord, 0, len(archives))
+	for _, archive := range archives {
+		name := archive.Name
+		if archive.Source == storage.RenewalArchiveBySerial {
+			certificate, err := (&cert.Pair{CertPEM: archive.CertificatePEM}).Certificate()
+			if err != nil {
+				return nil, err
+			}
+			name = certificate.Subject.CommonName
+			if err := storage.ValidateEntityName(name); err != nil {
+				return nil, err
+			}
+		}
+		records = append(records, storage.LifecycleRecord{
+			Name:           name,
+			Serial:         new(big.Int).Set(archive.Serial),
+			CertificatePEM: append([]byte(nil), archive.CertificatePEM...),
+			RenewalSource:  archive.Source,
+		})
 	}
 	sortLegacyLifecycleRecords(records)
 	return records, nil

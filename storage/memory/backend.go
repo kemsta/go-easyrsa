@@ -114,6 +114,7 @@ func (s *store) replace(source *store) {
 	s.artifacts = replacement.artifacts
 	s.expired = replacement.expired
 	s.renewed = replacement.renewed
+	s.renewedBySerial = replacement.renewedBySerial
 	s.revokedCerts = replacement.revokedCerts
 	s.revokedKeys = replacement.revokedKeys
 	s.revokedCSRs = replacement.revokedCSRs
@@ -160,6 +161,7 @@ func (s *store) clone() *store {
 	}
 	cloneByteMap(cloned.expired, s.expired)
 	cloneByteMap(cloned.renewed, s.renewed)
+	cloneByteMap(cloned.renewedBySerial, s.renewedBySerial)
 	cloneByteMap(cloned.revokedCerts, s.revokedCerts)
 	cloneByteMap(cloned.revokedKeys, s.revokedKeys)
 	cloneByteMap(cloned.revokedCSRs, s.revokedCSRs)

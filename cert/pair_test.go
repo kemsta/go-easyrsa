@@ -26,6 +26,17 @@ func requirePrivateKey[T any](t *testing.T, key crypto.PrivateKey) T {
 	return typed
 }
 
+func TestRevocationReasonCodes(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, certpkg.RevocationReason(0), certpkg.ReasonUnspecified)
+	require.Equal(t, certpkg.RevocationReason(1), certpkg.ReasonKeyCompromise)
+	require.Equal(t, certpkg.RevocationReason(2), certpkg.ReasonCACompromise)
+	require.Equal(t, certpkg.RevocationReason(3), certpkg.ReasonAffiliationChanged)
+	require.Equal(t, certpkg.RevocationReason(4), certpkg.ReasonSuperseded)
+	require.Equal(t, certpkg.RevocationReason(5), certpkg.ReasonCessationOfOperation)
+	require.Equal(t, certpkg.RevocationReason(6), certpkg.ReasonCertificateHold)
+}
+
 func TestPair_PublicHelpersAcrossCertTypes(t *testing.T) {
 	pk := newTestPKI(t)
 

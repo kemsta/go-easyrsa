@@ -23,12 +23,12 @@ canonical `--flag=value` form and place global options before the command.
 
 The tagged CLI E2E suite passes against the pinned Easy-RSA v3.2.6 reference
 and is required by CI. This verifies the declared subset; it is not a claim
-that the 10 deferred commands or explicitly unsupported controls are drop-in
+that the eight deferred commands or explicitly unsupported controls are drop-in
 compatible.
 
 ## Current command subset
 
-These 34 registered command names are in scope. Every name is exercised by at
+These 36 registered command names are in scope. Every name is exercised by at
 least one canonical upstream-valid E2E scenario, in addition to focused
 ordinary tests.
 
@@ -48,6 +48,7 @@ ordinary tests.
 | `revoke` | ✅ |
 | `revoke-issued` | ✅ |
 | `revoke-expired` | ✅ |
+| `revoke-renewed` | ✅ |
 | `gen-crl` | ✅ |
 | `show-req` | ✅ |
 | `show-cert` | ✅ |
@@ -55,6 +56,7 @@ ordinary tests.
 | `show-crl` | ✅ |
 | `show-expire` | ✅ |
 | `show-revoke` | ✅ |
+| `show-renew` | ✅ |
 | `show-eku` | ✅ |
 | `verify-cert` | ✅ |
 | `export-p12` | ✅ |
@@ -71,11 +73,10 @@ ordinary tests.
 
 ## Deferred upstream commands
 
-These 10 upstream command names are not registered in the current phase:
+These eight upstream command names are not registered in the current phase:
 
 - `self-sign-server`, `self-sign-client`
 - `inline`
-- `revoke-renewed`, `show-renew`
 - `import-ca`, `import-tls-key`
 - `gen-tls-auth-key`, `gen-tls-crypt-key`
 - `write`
@@ -164,8 +165,8 @@ rejections.
 
 ## Inspection and utility semantics
 
-`show-req`, `show-eku`, `serial`, and `check-serial` use non-initializing,
-read-only PKI methods. They do not create layout directories or advance the
+`show-req`, `show-eku`, `show-renew`, `serial`, and `check-serial` use
+non-initializing, read-only PKI methods. They do not create layout directories or advance the
 serial counter. `display-dn`, explicit-path `show-eku`, CSR inspection, and
 random generation are implemented by the root library; the CLI only formats
 typed results. `rand` streams lowercase hexadecimal output without opening a
@@ -186,12 +187,19 @@ and shell error handling.
 
 The CLI delegates lifecycle operations to transactional `PKI` methods.
 `expire` moves the issued certificate to `expired`; `renew` archives the prior
-certificate under `renewed/issued`; issued and expired revoke variants archive
-under `revoked/*_by_serial`. Backend transactions own the sibling advisory
-lock, no-clobber staging, identity checks, commit, and rollback for direct
-library and CLI callers alike. Revoke commands do not create a CRL; `gen-crl`
-is explicit. The library marks superseded renewal entries non-valid internally;
-user-facing compatibility derives old-history validity from the certificate.
+certificate under `renewed/issued`; issued, expired, and renewed revoke variants
+archive under `revoked/*_by_serial`. `show-renew` also reports historical
+`renewed/certs_by_serial` records with `***`; those records require an external
+rewind and cannot be revoked directly. Backend transactions own the sibling
+advisory lock, no-clobber staging, identity checks, commit, and rollback for
+direct library and CLI callers alike. Revoke commands do not create a CRL;
+`gen-crl` is explicit. The library marks superseded renewal entries non-valid
+internally; user-facing `V`/`E` comes from the archived certificate's actual
+expiry. The library returns typed `RenewalInfo` values with name, serial,
+status, expiry, common name, detached certificate PEM, and `RequiresRewind`.
+`revoke-renewed` preserves the current replacement certificate, private key,
+and CSR. Revocation reasons include Easy-RSA's `certificateHold` and its
+`ch`/`cer*` aliases.
 
 ## CLI/library boundary
 
@@ -218,5 +226,5 @@ The suite:
 - verifies representative mixed-producer continuation in both directions;
 - fails if the pinned Easy-RSA reference is missing.
 
-The declared 34-command positive-compatibility subset has no skipped or
+The declared 36-command positive-compatibility subset has no skipped or
 expected E2E failures.

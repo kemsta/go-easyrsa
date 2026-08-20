@@ -3,6 +3,7 @@ package fs
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"math/big"
 	"os"
@@ -21,7 +22,7 @@ func (l *LifecycleStorage) ExportState() (state storage.LifecycleState, err erro
 		if err != nil {
 			return err
 		}
-		state.Renewed, err = exportNamedLifecycleDirectory(root, filepath.Join("renewed", "issued"))
+		state.Renewed, err = exportRenewedLifecycle(root)
 		if err != nil {
 			return err
 		}
@@ -73,6 +74,51 @@ func exportNamedLifecycleDirectory(root *os.Root, relativeDirectory string) (rec
 			record.CSRPEM = request
 		} else if !errors.Is(err, storage.ErrNotFound) {
 			return nil, err
+		}
+		records = append(records, record)
+	}
+	sortLifecycleStateRecords(records)
+	return records, nil
+}
+
+func exportRenewedLifecycle(root *os.Root) ([]storage.LifecycleRecord, error) {
+	archives, err := listRenewalArchives(root)
+	if err != nil {
+		return nil, err
+	}
+	if len(archives) == 0 {
+		return nil, nil
+	}
+	records := make([]storage.LifecycleRecord, 0, len(archives))
+	for _, archive := range archives {
+		name := archive.Name
+		if archive.Source == storage.RenewalArchiveBySerial {
+			certificate, err := (&cert.Pair{CertPEM: archive.CertificatePEM}).Certificate()
+			if err != nil {
+				return nil, err
+			}
+			name = certificate.Subject.CommonName
+			if err := storage.ValidateEntityName(name); err != nil {
+				return nil, err
+			}
+		}
+		record := storage.LifecycleRecord{
+			Name:           name,
+			Serial:         new(big.Int).Set(archive.Serial),
+			CertificatePEM: append([]byte(nil), archive.CertificatePEM...),
+			RenewalSource:  archive.Source,
+		}
+		if archive.Source == storage.RenewalArchiveIssued {
+			if key, err := readLifecycleRootFile(root, filepath.Join("private", name+".key")); err == nil {
+				record.PrivateKeyPEM = key
+			} else if !errors.Is(err, storage.ErrNotFound) {
+				return nil, err
+			}
+			if request, err := readLifecycleRootFile(root, filepath.Join("reqs", name+".req")); err == nil {
+				record.CSRPEM = request
+			} else if !errors.Is(err, storage.ErrNotFound) {
+				return nil, err
+			}
 		}
 		records = append(records, record)
 	}
@@ -181,6 +227,11 @@ func (l *LifecycleStorage) ReplaceState(state storage.LifecycleState) error {
 				return err
 			}
 		}
+		for _, relative := range []string{filepath.Join("renewed", "issued"), filepath.Join("renewed", "certs_by_serial")} {
+			if err := root.MkdirAll(relative, 0o755); err != nil {
+				return err
+			}
+		}
 		for _, record := range state.Expired {
 			if err := writeLifecycleStateRecord(root, filepath.Join("expired", record.Name+".crt"), record, false); err != nil {
 				return err
@@ -193,11 +244,25 @@ func (l *LifecycleStorage) ReplaceState(state storage.LifecycleState) error {
 			}
 		}
 		for _, record := range state.Renewed {
-			if err := writeLifecycleStateRecord(root, filepath.Join("renewed", "issued", record.Name+".crt"), record, false); err != nil {
+			source := record.RenewalSource
+			if source == "" {
+				source = storage.RenewalArchiveIssued
+			}
+			certificatePath := filepath.Join("renewed", "issued", record.Name+".crt")
+			if source == storage.RenewalArchiveBySerial {
+				certificatePath = filepath.Join("renewed", "certs_by_serial", storage.HexSerial(record.Serial)+".crt")
+			}
+			if source == storage.RenewalArchiveBySerial {
+				if err := writeLifecycleCertificateExclusive(root, certificatePath, record.CertificatePEM); err != nil {
+					return err
+				}
+			} else if err := writeLifecycleStateRecord(root, certificatePath, record, false); err != nil {
 				return err
 			}
-			if err := restoreLifecycleAssets(root, record); err != nil {
-				return err
+			if source == storage.RenewalArchiveIssued {
+				if err := restoreLifecycleAssets(root, record); err != nil {
+					return err
+				}
 			}
 		}
 		for _, record := range state.Revoked {
@@ -218,7 +283,7 @@ func (l *LifecycleStorage) ReplaceState(state storage.LifecycleState) error {
 }
 
 func writeLifecycleStateRecord(root *os.Root, certificatePath string, record storage.LifecycleRecord, revoked bool) error {
-	if err := writeLifecycleRootFile(root, certificatePath, record.CertificatePEM, 0o644); err != nil {
+	if err := writeLifecycleCertificateExclusive(root, certificatePath, record.CertificatePEM); err != nil {
 		return err
 	}
 	hexSerial := storage.HexSerial(record.Serial)
@@ -240,6 +305,28 @@ func writeLifecycleStateRecord(root *os.Root, certificatePath string, record sto
 		if err := writeLifecycleRootFile(root, filepath.Join("revoked", "reqs_by_serial", hexSerial+".req"), record.CSRPEM, 0o644); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func writeLifecycleCertificateExclusive(root *os.Root, name string, data []byte) (err error) {
+	if err := root.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+		return err
+	}
+	file, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if errors.Is(err, fs.ErrExist) {
+		return errors.Join(storage.ErrConflict, err)
+	}
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, file.Close()) }()
+	n, err := file.Write(data)
+	if err != nil {
+		return err
+	}
+	if n != len(data) {
+		return io.ErrShortWrite
 	}
 	return nil
 }
@@ -295,11 +382,15 @@ func removeRootIfExists(root *os.Root, name string) error {
 
 func validateLifecycleState(state storage.LifecycleState) error {
 	seenLocations := make(map[string]struct{})
+	seenRenewed := make(map[string]struct{})
 	seenRevoked := make(map[string]struct{})
 	for location, records := range map[string][]storage.LifecycleRecord{"expired": state.Expired, "renewed": state.Renewed, "revoked": state.Revoked} {
 		for _, record := range records {
 			if location != "revoked" && record.AssetsArchived {
 				return fmt.Errorf("storage/fs: archived assets are only valid for revoked certificates")
+			}
+			if location != "renewed" && record.RenewalSource != "" {
+				return fmt.Errorf("storage/fs: renewal source is only valid for renewed certificates")
 			}
 			if err := storage.ValidateEntityName(record.Name); err != nil {
 				return err
@@ -307,14 +398,40 @@ func validateLifecycleState(state storage.LifecycleState) error {
 			if err := storage.ValidateSerial(record.Serial); err != nil {
 				return err
 			}
-			serial, err := (&cert.Pair{Name: record.Name, CertPEM: record.CertificatePEM}).Serial()
+			certificate, err := (&cert.Pair{Name: record.Name, CertPEM: record.CertificatePEM}).Certificate()
 			if err != nil {
 				return err
 			}
-			if serial.Cmp(record.Serial) != 0 {
+			if certificate.SerialNumber.Cmp(record.Serial) != 0 {
 				return fmt.Errorf("storage/fs: lifecycle serial does not match certificate")
 			}
+
 			key := location + "\x00" + record.Name
+			if location == "renewed" {
+				serialKey := storage.HexSerial(record.Serial)
+				if _, exists := seenRenewed[serialKey]; exists {
+					return storage.ErrConflict
+				}
+				seenRenewed[serialKey] = struct{}{}
+				source := record.RenewalSource
+				if source == "" {
+					source = storage.RenewalArchiveIssued
+				}
+				switch source {
+				case storage.RenewalArchiveIssued:
+					key += "\x00issued"
+				case storage.RenewalArchiveBySerial:
+					if len(record.PrivateKeyPEM) > 0 || len(record.CSRPEM) > 0 {
+						return fmt.Errorf("storage/fs: historical renewed certificates cannot carry current assets")
+					}
+					if record.Name != certificate.Subject.CommonName {
+						return fmt.Errorf("storage/fs: historical renewed name does not match certificate common name")
+					}
+					key = location + "\x00" + serialKey + "\x00certs_by_serial"
+				default:
+					return fmt.Errorf("storage/fs: unsupported renewal source %q", source)
+				}
+			}
 			if _, exists := seenLocations[key]; exists {
 				return storage.ErrConflict
 			}

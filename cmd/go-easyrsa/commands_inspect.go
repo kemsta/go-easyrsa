@@ -9,6 +9,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kemsta/go-easyrsa/v2/cert"
+	"github.com/kemsta/go-easyrsa/v2/pki"
+	"github.com/kemsta/go-easyrsa/v2/storage"
 )
 
 func newShowCertCmd(opts *cliOptions) *cobra.Command {
@@ -131,6 +133,28 @@ func newShowRevokeCmd(opts *cliOptions) *cobra.Command {
 	}
 }
 
+func newShowRenewCmd(opts *cliOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "show-renew [common-name]",
+		Short: "Show certificates that have been renewed but not revoked",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pk, _, err := openPKIReadOnly(opts)
+			if err != nil {
+				return err
+			}
+			renewed, err := pk.ShowRenewed()
+			if err != nil {
+				return err
+			}
+			if len(args) == 1 {
+				renewed = filterRenewalsByCommonName(renewed, args[0])
+			}
+			return printRenewalList(cmd, renewed)
+		},
+	}
+}
+
 func newVerifyCertCmd(opts *cliOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "verify-cert <name> [batch]",
@@ -180,4 +204,35 @@ func filterPairsByName(pairs []*cert.Pair, name string) []*cert.Pair {
 		}
 	}
 	return filtered
+}
+
+func filterRenewalsByCommonName(renewals []pki.RenewalInfo, commonName string) []pki.RenewalInfo {
+	filtered := make([]pki.RenewalInfo, 0, len(renewals))
+	for _, renewal := range renewals {
+		if renewal.CommonName == commonName {
+			filtered = append(filtered, renewal)
+		}
+	}
+	return filtered
+}
+
+func printRenewalList(cmd *cobra.Command, renewals []pki.RenewalInfo) error {
+	for _, renewal := range renewals {
+		prefix := ""
+		if renewal.RequiresRewind {
+			prefix = "*** "
+		}
+		if _, err := fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"%s%s | Serial: %s | Expires: %s | CN: %s\n",
+			prefix,
+			renewal.Status,
+			storage.HexSerial(renewal.Serial),
+			renewal.ExpiresAt.UTC().Format("Jan _2 15:04:05 2006 GMT"),
+			renewal.CommonName,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }

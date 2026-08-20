@@ -22,6 +22,7 @@ The library currently provides typed equivalents for these core operations:
 | `renew` | `Renew(name)` / `RenewCA()` |
 | `revoke` / `revoke-issued` | `Revoke(name, reason)` / `RevokeIssued(name, reason)` |
 | `revoke-expired` | `RevokeExpired(name, reason)` |
+| `revoke-renewed` | `RevokeRenewed(name, reason)` |
 | `gen-crl` | `GenCRL()` |
 | `gen-dh` | `GenDH(bits)` |
 | `show-req` | `ShowReq(name)` and `CSR.Info()` |
@@ -30,6 +31,7 @@ The library currently provides typed equivalents for these core operations:
 | `show-crl` | `ShowCRL()` |
 | `show-expire` | `ShowExpiring(days)` |
 | `show-revoke` | `ShowRevoked()` |
+| `show-renew` | `ShowRenewed()` |
 | `verify-cert` | `VerifyCert(name)` |
 | `update-db` | `UpdateDB()` |
 | `expire` | `Expire(name)` |
@@ -143,9 +145,9 @@ cd cmd/go-easyrsa
 go build
 ```
 
-The CLI exposes a 34-command core subset whose positive compatibility is
+The CLI exposes a 36-command core subset whose positive compatibility is
 verified against the pinned Easy-RSA v3.2.6 reference in CI. See
-`docs/go-easyrsa-cli-parity.md` for the verified surface and the 10 deferred
+`docs/go-easyrsa-cli-parity.md` for the verified surface and the eight deferred
 upstream commands; this is not a claim of complete upstream CLI parity.
 
 PKCS#12 `friendlyName` customization (`--usefn`, `nofn`,
@@ -220,12 +222,24 @@ pair, err := p.SignReq("device-42", cert.CertTypeClient)
 // Renew a certificate (new cert, same key)
 renewed, err := p.Renew("alice")
 
+// Inspect the old, unrevoked renewal archive.
+renewals, err := p.ShowRenewed()
+
+// Revoke the old certificate after deploying its replacement.
+// CRL generation remains a separate operation.
+err = p.RevokeRenewed("alice", cert.ReasonSuperseded)
+
 // Find certificates expiring within 30 days
 expiring, err := p.ShowExpiring(30)
 
 // Mark expired certs in the index
 err = p.UpdateDB()
 ```
+
+`ShowRenewed` returns `[]pki.RenewalInfo` with the storage name, serial,
+actual-expiry `V`/`E` status, expiry time, common name, certificate PEM, and a
+`RequiresRewind` marker for historical serial-based archives. `RevokeRenewed`
+preserves the replacement certificate, private key, and CSR.
 
 ### ❌ Revocation
 

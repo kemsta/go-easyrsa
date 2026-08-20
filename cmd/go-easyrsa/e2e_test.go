@@ -1335,6 +1335,15 @@ func normalizeRenewedIndexStatus(index []indexMeta) {
 			index[i].Status = string(storage.StatusValid)
 		}
 	}
+	sort.Slice(index, func(i, j int) bool {
+		if index[i].CN != index[j].CN {
+			return index[i].CN < index[j].CN
+		}
+		if index[i].Current != index[j].Current {
+			return !index[i].Current
+		}
+		return index[i].Status < index[j].Status
+	})
 }
 
 func rootCASerials(t *testing.T, dir string) map[string]bool {
