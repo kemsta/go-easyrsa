@@ -13,7 +13,7 @@ import (
 	"github.com/kemsta/go-easyrsa/v2/storage"
 )
 
-func (l *LifecycleStorage) ExportState() (storage.LifecycleState, error) {
+func (l *LifecycleStorage) ExportState() (state storage.LifecycleState, err error) {
 	root, err := os.OpenRoot(l.pkiDir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return storage.LifecycleState{}, nil
@@ -21,7 +21,7 @@ func (l *LifecycleStorage) ExportState() (storage.LifecycleState, error) {
 	if err != nil {
 		return storage.LifecycleState{}, err
 	}
-	defer root.Close()
+	defer func() { err = errors.Join(err, root.Close()) }()
 	expired, err := exportLegacyNamedLifecycle(root, "expired")
 	if err != nil {
 		return storage.LifecycleState{}, err
@@ -37,7 +37,7 @@ func (l *LifecycleStorage) ExportState() (storage.LifecycleState, error) {
 	return storage.LifecycleState{Expired: expired, Renewed: renewed, Revoked: revoked}, nil
 }
 
-func exportLegacyNamedLifecycle(root *os.Root, directoryName string) ([]storage.LifecycleRecord, error) {
+func exportLegacyNamedLifecycle(root *os.Root, directoryName string) (records []storage.LifecycleRecord, err error) {
 	directory, err := root.Open(directoryName)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -45,12 +45,11 @@ func exportLegacyNamedLifecycle(root *os.Root, directoryName string) ([]storage.
 	if err != nil {
 		return nil, err
 	}
-	defer directory.Close()
+	defer func() { err = errors.Join(err, directory.Close()) }()
 	entries, err := directory.ReadDir(-1)
 	if err != nil {
 		return nil, err
 	}
-	var records []storage.LifecycleRecord
 	for _, entry := range entries {
 		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !strings.HasSuffix(entry.Name(), ".crt") {
 			continue
@@ -73,7 +72,7 @@ func exportLegacyNamedLifecycle(root *os.Root, directoryName string) ([]storage.
 	return records, nil
 }
 
-func exportLegacyRevokedLifecycle(root *os.Root) ([]storage.LifecycleRecord, error) {
+func exportLegacyRevokedLifecycle(root *os.Root) (records []storage.LifecycleRecord, err error) {
 	directoryName := filepath.Join("revoked", "certs_by_serial")
 	directory, err := root.Open(directoryName)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -82,12 +81,11 @@ func exportLegacyRevokedLifecycle(root *os.Root) ([]storage.LifecycleRecord, err
 	if err != nil {
 		return nil, err
 	}
-	defer directory.Close()
+	defer func() { err = errors.Join(err, directory.Close()) }()
 	entries, err := directory.ReadDir(-1)
 	if err != nil {
 		return nil, err
 	}
-	var records []storage.LifecycleRecord
 	for _, entry := range entries {
 		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !strings.HasSuffix(entry.Name(), ".crt") {
 			continue

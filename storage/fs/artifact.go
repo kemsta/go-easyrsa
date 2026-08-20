@@ -38,7 +38,7 @@ func (a *ArtifactStorage) PutArtifact(artifact storage.Artifact) error {
 	return writeAtomicMode(name, artifact.Data, mode)
 }
 
-func (a *ArtifactStorage) GetArtifact(name string) (storage.Artifact, error) {
+func (a *ArtifactStorage) GetArtifact(name string) (artifact storage.Artifact, err error) {
 	if err := storage.ValidateArtifactPath(name); err != nil {
 		return storage.Artifact{}, err
 	}
@@ -57,7 +57,7 @@ func (a *ArtifactStorage) GetArtifact(name string) (storage.Artifact, error) {
 	if err != nil {
 		return storage.Artifact{}, err
 	}
-	defer file.Close()
+	defer func() { err = errors.Join(err, file.Close()) }()
 	opened, err := file.Stat()
 	if err != nil {
 		return storage.Artifact{}, err

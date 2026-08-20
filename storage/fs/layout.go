@@ -110,7 +110,7 @@ func (p OwnershipProbe) Owned() (bool, error) {
 		if err == nil && value != "" {
 			valid := true
 			for _, character := range value {
-				if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') || (character >= 'A' && character <= 'F')) {
+				if (character < '0' || character > '9') && (character < 'a' || character > 'f') && (character < 'A' || character > 'F') {
 					valid = false
 					break
 				}

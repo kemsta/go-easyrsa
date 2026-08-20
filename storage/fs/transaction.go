@@ -961,12 +961,12 @@ func (j *transactionJournal) syncParents() error {
 	return errors.Join(syncErrors...)
 }
 
-func syncDirectory(path string) error {
+func syncDirectory(path string) (err error) {
 	directory, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	defer directory.Close()
+	defer func() { err = errors.Join(err, directory.Close()) }()
 	if err := directory.Sync(); err != nil {
 		if runtime.GOOS == "windows" || errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOTSUP) {
 			return nil

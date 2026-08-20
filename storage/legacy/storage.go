@@ -187,7 +187,7 @@ func (ks *KeyStorage) scanAll() ([]*cert.Pair, error) {
 	return clonePairs(all), nil
 }
 
-func (ks *KeyStorage) scanName(name string) ([]*cert.Pair, error) {
+func (ks *KeyStorage) scanName(name string) (result []*cert.Pair, err error) {
 	root, err := os.OpenRoot(ks.pkiDir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -195,7 +195,7 @@ func (ks *KeyStorage) scanName(name string) ([]*cert.Pair, error) {
 		}
 		return nil, err
 	}
-	defer root.Close()
+	defer func() { err = errors.Join(err, root.Close()) }()
 
 	dirInfo, err := root.Lstat(name)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -211,7 +211,7 @@ func (ks *KeyStorage) scanName(name string) ([]*cert.Pair, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer directory.Close()
+	defer func() { err = errors.Join(err, directory.Close()) }()
 	openedDirInfo, err := directory.Stat()
 	if err != nil {
 		return nil, err
@@ -467,7 +467,7 @@ func (ch *CRLHolder) Put(_ []byte) error {
 	return storage.ErrReadOnly
 }
 
-func (ch *CRLHolder) Get() (*x509.RevocationList, error) {
+func (ch *CRLHolder) Get() (list *x509.RevocationList, err error) {
 	root, err := os.OpenRoot(ch.pkiDir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return &x509.RevocationList{}, nil
@@ -475,7 +475,7 @@ func (ch *CRLHolder) Get() (*x509.RevocationList, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer root.Close()
+	defer func() { err = errors.Join(err, root.Close()) }()
 	data, err := readLegacyRegular(root, "crl.pem")
 	if errors.Is(err, fs.ErrNotExist) {
 		return &x509.RevocationList{}, nil

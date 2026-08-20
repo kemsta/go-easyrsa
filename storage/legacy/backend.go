@@ -73,7 +73,7 @@ type ArtifactStorage struct{ pkiDir string }
 
 func (a *ArtifactStorage) PutArtifact(storage.Artifact) error { return storage.ErrReadOnly }
 func (a *ArtifactStorage) DeleteArtifact(string) error        { return storage.ErrReadOnly }
-func (a *ArtifactStorage) GetArtifact(name string) (storage.Artifact, error) {
+func (a *ArtifactStorage) GetArtifact(name string) (artifact storage.Artifact, err error) {
 	if err := storage.ValidateArtifactPath(name); err != nil {
 		return storage.Artifact{}, err
 	}
@@ -84,7 +84,7 @@ func (a *ArtifactStorage) GetArtifact(name string) (storage.Artifact, error) {
 	if err != nil {
 		return storage.Artifact{}, err
 	}
-	defer root.Close()
+	defer func() { err = errors.Join(err, root.Close()) }()
 	relative := filepath.FromSlash(name)
 	info, err := root.Lstat(relative)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -119,7 +119,7 @@ func (l *LifecycleStorage) MoveExpiredToRevoked(string, *big.Int) error {
 func (l *LifecycleStorage) MoveRenewedToRevoked(string, *big.Int) error {
 	return storage.ErrReadOnly
 }
-func (l *LifecycleStorage) GetExpiredCertificate(name string) ([]byte, error) {
+func (l *LifecycleStorage) GetExpiredCertificate(name string) (data []byte, err error) {
 	if err := storage.ValidateEntityName(name); err != nil {
 		return nil, err
 	}
@@ -130,8 +130,8 @@ func (l *LifecycleStorage) GetExpiredCertificate(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer root.Close()
-	data, err := readLegacyRegular(root, filepath.Join("expired", name+".crt"))
+	defer func() { err = errors.Join(err, root.Close()) }()
+	data, err = readLegacyRegular(root, filepath.Join("expired", name+".crt"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, storage.ErrNotFound
 	}
@@ -140,7 +140,7 @@ func (l *LifecycleStorage) GetExpiredCertificate(name string) ([]byte, error) {
 
 func (l *LifecycleStorage) ReplaceState(storage.LifecycleState) error { return storage.ErrReadOnly }
 
-func (l *LifecycleStorage) GetRenewedCertificate(name string) ([]byte, error) {
+func (l *LifecycleStorage) GetRenewedCertificate(name string) (data []byte, err error) {
 	if err := storage.ValidateEntityName(name); err != nil {
 		return nil, err
 	}
@@ -151,8 +151,8 @@ func (l *LifecycleStorage) GetRenewedCertificate(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer root.Close()
-	data, err := readLegacyRegular(root, filepath.Join("renewed", "issued", name+".crt"))
+	defer func() { err = errors.Join(err, root.Close()) }()
+	data, err = readLegacyRegular(root, filepath.Join("renewed", "issued", name+".crt"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, storage.ErrNotFound
 	}

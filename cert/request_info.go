@@ -53,10 +53,10 @@ func publicKeyDescription(publicKey any) string {
 	case *rsa.PublicKey:
 		return fmt.Sprintf("RSA-%d", key.N.BitLen())
 	case *ecdsa.PublicKey:
-		if key.Curve == nil || key.Curve.Params() == nil {
+		if key.Curve == nil || key.Params() == nil {
 			return "ECDSA-unknown"
 		}
-		return "ECDSA-" + key.Curve.Params().Name
+		return "ECDSA-" + key.Params().Name
 	case ed25519.PublicKey:
 		return "Ed25519"
 	default:

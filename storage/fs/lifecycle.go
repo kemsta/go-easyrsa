@@ -238,7 +238,7 @@ func copyLifecycleFile(sourcePath, destinationPath string, expected fs.FileInfo)
 	return destinationInfo, nil
 }
 
-func readLifecycleFile(name string) ([]byte, error) {
+func readLifecycleFile(name string) (data []byte, err error) {
 	info, err := os.Lstat(name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, storage.ErrNotFound
@@ -253,7 +253,7 @@ func readLifecycleFile(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { err = errors.Join(err, file.Close()) }()
 	openedInfo, err := file.Stat()
 	if err != nil {
 		return nil, err

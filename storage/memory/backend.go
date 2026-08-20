@@ -204,14 +204,6 @@ func cloneIndexEntryChecked(entry storage.IndexEntry) (storage.IndexEntry, error
 	return entry, nil
 }
 
-func cloneName(name pkix.Name) pkix.Name {
-	cloned, err := cloneNameChecked(name)
-	if err != nil {
-		panic(fmt.Sprintf("storage/memory: invalid stored subject attribute: %v", err))
-	}
-	return cloned
-}
-
 func cloneNameChecked(name pkix.Name) (pkix.Name, error) {
 	name.Country = append([]string(nil), name.Country...)
 	name.Organization = append([]string(nil), name.Organization...)
