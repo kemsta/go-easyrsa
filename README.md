@@ -22,6 +22,7 @@ The library currently provides typed equivalents for these core operations:
 | `renew` | `Renew(name)` / `RenewCA()` |
 | `revoke` / `revoke-issued` | `Revoke(name, reason)` / `RevokeIssued(name, reason)` |
 | `revoke-expired` | `RevokeExpired(name, reason)` |
+| `revoke-renewed` | `RevokeRenewed(name, reason)` |
 | `gen-crl` | `GenCRL()` |
 | `gen-dh` | `GenDH(bits)` |
 | `show-req` | `ShowReq(name)` and `CSR.Info()` |
@@ -30,6 +31,7 @@ The library currently provides typed equivalents for these core operations:
 | `show-crl` | `ShowCRL()` |
 | `show-expire` | `ShowExpiring(days)` |
 | `show-revoke` | `ShowRevoked()` |
+| `show-renew` | `ShowRenewed()` |
 | `verify-cert` | `VerifyCert(name)` |
 | `update-db` | `UpdateDB()` |
 | `expire` | `Expire(name)` |
