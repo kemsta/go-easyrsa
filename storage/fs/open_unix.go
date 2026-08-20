@@ -1,12 +1,12 @@
 //go:build aix || android || darwin || dragonfly || freebsd || illumos || ios || linux || netbsd || openbsd || solaris
 
-package main
+package fs
 
 import (
 	"os"
 	"syscall"
 )
 
-func openLifecycleSource(root *os.Root, name string) (*os.File, error) {
-	return root.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+func openRegularFile(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 }

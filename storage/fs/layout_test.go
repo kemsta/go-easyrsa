@@ -9,6 +9,7 @@ import (
 
 	"github.com/kemsta/go-easyrsa/v2/internal/testutil"
 	"github.com/kemsta/go-easyrsa/v2/pki"
+	"github.com/kemsta/go-easyrsa/v2/storage"
 	fs "github.com/kemsta/go-easyrsa/v2/storage/fs"
 )
 
@@ -31,6 +32,23 @@ func TestOwnershipProbe_Owned(t *testing.T) {
 	owned, err := probe.Owned()
 	require.NoError(t, err)
 	require.True(t, owned)
+}
+
+func TestInitializeResetRejectsIndividualGenericMarkers(t *testing.T) {
+	for _, marker := range []string{"private", "issued", "reqs", "certs_by_serial", "expired", "renewed", "revoked"} {
+		marker := marker
+		t.Run(marker, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.MkdirAll(filepath.Join(dir, marker), 0o755))
+			unrelated := filepath.Join(dir, "unrelated.txt")
+			require.NoError(t, os.WriteFile(unrelated, []byte("keep"), 0o600))
+			backend := fs.NewBackend(dir, "ca")
+			require.ErrorIs(t, backend.Initialize(true), storage.ErrForeignStorage)
+			data, err := os.ReadFile(unrelated)
+			require.NoError(t, err)
+			require.Equal(t, []byte("keep"), data)
+		})
+	}
 }
 
 func TestOwnershipProbe_NotOwned(t *testing.T) {

@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/kemsta/go-easyrsa/v2/internal/testutil"
@@ -74,11 +75,29 @@ func TestRenew(t *testing.T) {
 	require.NoError(t, err)
 
 	pair, err := p.Renew("client1", pki.WithNoPass())
-	require.NoError(t, err) // fails: ErrNotImplemented
+	require.NoError(t, err)
 	assert.Equal(t, "client1", pair.Name)
+	require.FileExists(t, filepath.Join(pkiDir, "renewed", "issued", "client1.crt"))
+	er.Run("show-cert", "client1")
+	renewedStatus := er.Run("show-renew", "client1")
+	assert.Contains(t, renewedStatus, "client1")
 }
 
-// TestExpireCert — Pattern B: easy-rsa writes, go-easyrsa expires.
+// TestExpire — Pattern B: easy-rsa writes, go-easyrsa moves the issued certificate.
+func TestExpire(t *testing.T) {
+	pkiDir := t.TempDir()
+	er := testutil.NewRunner(t, pkiDir)
+	er.Run("init-pki")
+	er.Run("build-ca", "nopass")
+	er.Run("build-client-full", "client1", "nopass")
+
+	p, err := pki.NewWithFS(pkiDir, pki.Config{})
+	require.NoError(t, err)
+	require.NoError(t, p.Expire("client1"))
+	require.FileExists(t, filepath.Join(pkiDir, "expired", "client1.crt"))
+}
+
+// TestExpireCert — Pattern B: easy-rsa writes, go-easyrsa changes only the index.
 func TestExpireCert(t *testing.T) {
 	pkiDir := t.TempDir()
 	er := testutil.NewRunner(t, pkiDir)

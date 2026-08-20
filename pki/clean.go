@@ -16,6 +16,9 @@ type Cleaner interface {
 //
 // If the underlying storage does not implement Cleaner, Clean is a no-op.
 func (p *PKI) Clean() error {
+	if !p.bound() {
+		return withUpdateError(p, func(bound *PKI) error { return bound.Clean() })
+	}
 	entries, err := p.index.Query(storage.IndexFilter{})
 	if err != nil {
 		return err

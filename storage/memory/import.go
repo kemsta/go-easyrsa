@@ -15,18 +15,16 @@ func (ks *KeyStorage) ReplacePairs(stream storage.PairStream) error {
 
 	ks.s.pairs = make(map[string][]*cert.Pair)
 	ks.s.bySerial = make(map[string]*cert.Pair)
+	ks.s.unavailable = make(map[string]bool)
 
 	return stream(func(pair *cert.Pair) error {
 		if pair == nil {
 			return nil
 		}
-		cp := &cert.Pair{Name: pair.Name}
-		if pair.CertPEM != nil {
-			cp.CertPEM = append([]byte(nil), pair.CertPEM...)
+		if err := storage.ValidateEntityName(pair.Name); err != nil {
+			return err
 		}
-		if pair.KeyPEM != nil {
-			cp.KeyPEM = append([]byte(nil), pair.KeyPEM...)
-		}
+		cp := clonePair(pair)
 		ks.s.pairs[cp.Name] = append(ks.s.pairs[cp.Name], cp)
 		if cp.CertPEM != nil {
 			if serial, err := cp.Serial(); err == nil {
@@ -39,15 +37,17 @@ func (ks *KeyStorage) ReplacePairs(stream storage.PairStream) error {
 
 // ReplaceAll replaces the full in-memory index with the supplied entries.
 func (db *IndexDB) ReplaceAll(entries []storage.IndexEntry) error {
-	db.s.mu.Lock()
-	defer db.s.mu.Unlock()
-	db.s.entries = make([]storage.IndexEntry, len(entries))
-	for i, e := range entries {
-		db.s.entries[i] = e
-		if e.Serial != nil {
-			db.s.entries[i].Serial = new(big.Int).Set(e.Serial)
+	cloned := make([]storage.IndexEntry, len(entries))
+	for i, entry := range entries {
+		var err error
+		cloned[i], err = cloneIndexEntryChecked(entry)
+		if err != nil {
+			return fmt.Errorf("storage/memory: clone index entry: %w", err)
 		}
 	}
+	db.s.mu.Lock()
+	defer db.s.mu.Unlock()
+	db.s.entries = cloned
 	return nil
 }
 

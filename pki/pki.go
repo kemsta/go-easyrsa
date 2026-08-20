@@ -2,89 +2,96 @@ package pki
 
 import (
 	"crypto/elliptic"
+	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/kemsta/go-easyrsa/v2/storage"
 	fsstore "github.com/kemsta/go-easyrsa/v2/storage/fs"
 	legacystore "github.com/kemsta/go-easyrsa/v2/storage/legacy"
+	memorystore "github.com/kemsta/go-easyrsa/v2/storage/memory"
 )
 
 // PKI orchestrates all certificate operations.
 // All storage dependencies are private — callers interact only through PKI methods.
 type PKI struct {
+	backend storage.Backend
+	config  Config
+	random  io.Reader
+
+	// The low-level fields are populated only on an ephemeral PKI copy bound to
+	// a backend View or Update callback. Public calls on the durable PKI enter a
+	// backend boundary before using them.
+	components storage.Components
 	storage    storage.KeyStorage
 	csrStorage storage.CSRStorage
 	index      storage.IndexDB
 	serial     storage.SerialProvider
 	crlHolder  storage.CRLHolder
-	config     Config
+	artifacts  storage.ArtifactStorage
+	lifecycle  storage.LifecycleStorage
 }
 
-// New constructs a PKI with explicit storage dependencies.
-// If any provided storage component implements storage.OwnershipValidator,
-// New verifies that the existing namespace is either empty or already owned by
-// that backend.
-func New(
-	cfg Config,
-	s storage.KeyStorage,
-	csr storage.CSRStorage,
-	idx storage.IndexDB,
-	sp storage.SerialProvider,
-	crl storage.CRLHolder,
-) (*PKI, error) {
-	if err := validateOwnedStorages(s, csr, idx, sp, crl); err != nil {
-		return nil, err
+// New constructs a PKI using one aggregate storage backend.
+func New(cfg Config, backend storage.Backend) (*PKI, error) {
+	cfg = applyConfigDefaults(cfg)
+	if err := storage.ValidateEntityName(cfg.CAName); err != nil {
+		return nil, fmt.Errorf("pki: invalid CA name: %w", err)
 	}
-	return &PKI{
-		storage:    s,
-		csrStorage: csr,
-		index:      idx,
-		serial:     sp,
-		crlHolder:  crl,
-		config:     applyConfigDefaults(cfg),
-	}, nil
+	if backend == nil {
+		return nil, errors.New("pki: storage backend is required")
+	}
+	if validator, ok := backend.(storage.OwnershipValidator); ok {
+		if err := storage.ValidateOwnership(validator); err != nil {
+			return nil, err
+		}
+	}
+	return &PKI{backend: backend, config: cfg, random: cryptorand.Reader}, nil
 }
 
 // OpenWithFS opens a PKI backed by an existing filesystem layout without
 // creating directories or files. It is suitable for read-only operations.
 func OpenWithFS(pkiDir string, cfg Config) (*PKI, error) {
 	cfg = applyConfigDefaults(cfg)
-	ks := fsstore.NewKeyStorage(pkiDir, cfg.CAName)
-	cs := fsstore.NewCSRStorage(pkiDir)
-	idx := fsstore.NewIndexDB(pkiDir)
-	sp := fsstore.NewSerialProvider(pkiDir)
-	crl := fsstore.NewCRLHolder(pkiDir)
-	pk, err := New(cfg, ks, cs, idx, sp, crl)
+	if err := storage.ValidateEntityName(cfg.CAName); err != nil {
+		return nil, fmt.Errorf("pki: invalid CA name: %w", err)
+	}
+	// Construction is deliberately non-validating and non-mutating so callers
+	// can invoke InitPKI and receive ErrForeignStorage from that operation. Every
+	// ordinary View/Update still validates ownership in the backend.
+	return &PKI{backend: fsstore.NewBackend(pkiDir, cfg.CAName), config: cfg, random: cryptorand.Reader}, nil
+}
+
+// NewWithFS constructs a PKI backed by a filesystem PKI directory
+// using the easy-rsa-compatible layout, initializing its directories.
+func NewWithFS(pkiDir string, cfg Config) (*PKI, error) {
+	cfg = applyConfigDefaults(cfg)
+	if err := storage.ValidateEntityName(cfg.CAName); err != nil {
+		return nil, fmt.Errorf("pki: invalid CA name: %w", err)
+	}
+	backend := fsstore.NewBackend(pkiDir, cfg.CAName)
+	if err := backend.EnsureLayout(); err != nil {
+		return nil, wrapForeignStorageError(err, pkiDir, "current PKI filesystem layout")
+	}
+	pk, err := New(cfg, backend)
 	if err != nil {
 		return nil, wrapForeignStorageError(err, pkiDir, "current PKI filesystem layout")
 	}
 	return pk, nil
 }
 
-// NewWithFS constructs a PKI backed by a filesystem PKI directory
-// using the easy-rsa-compatible layout, initializing its directories.
-func NewWithFS(pkiDir string, cfg Config) (*PKI, error) {
-	pk, err := OpenWithFS(pkiDir, cfg)
-	if err != nil {
-		return nil, err
-	}
-	if err := fsstore.InitDirs(pkiDir); err != nil {
-		return nil, err
-	}
-	return pk, nil
+// NewWithMemory constructs an empty transactional in-memory PKI.
+func NewWithMemory(cfg Config) (*PKI, error) {
+	return New(cfg, memorystore.NewBackend())
 }
 
 // NewWithLegacyFSRO constructs a PKI backed by the legacy v1 filesystem layout
 // in read-only mode.
 func NewWithLegacyFSRO(pkiDir string, cfg Config) (*PKI, error) {
 	cfg = applyConfigDefaults(cfg)
-	ks := legacystore.NewKeyStorage(pkiDir, cfg.CAName)
-	cs := legacystore.NewCSRStorage(pkiDir)
-	sp := legacystore.NewSerialProvider(pkiDir)
-	crl := legacystore.NewCRLHolder(pkiDir)
-	idx := legacystore.NewIndexDB(ks, crl)
-	pk, err := New(cfg, ks, cs, idx, sp, crl)
+	backend := legacystore.NewBackend(pkiDir, cfg.CAName)
+	pk, err := New(cfg, backend)
 	if err != nil {
 		return nil, wrapForeignStorageError(err, pkiDir, "legacy PKI filesystem layout")
 	}
@@ -94,22 +101,9 @@ func NewWithLegacyFSRO(pkiDir string, cfg Config) (*PKI, error) {
 // applyConfigDefaults fills zero values in cfg with sensible defaults.
 func wrapForeignStorageError(err error, target, layout string) error {
 	if errors.Is(err, storage.ErrForeignStorage) {
-		return fmt.Errorf("%s is not empty and does not look like the %s", target, layout)
+		return fmt.Errorf("%s is not empty and does not look like the %s: %w", target, layout, err)
 	}
 	return err
-}
-
-func validateOwnedStorages(parts ...any) error {
-	for _, part := range parts {
-		validator, ok := part.(storage.OwnershipValidator)
-		if !ok {
-			continue
-		}
-		if err := storage.ValidateOwnership(validator); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func applyConfigDefaults(cfg Config) Config {

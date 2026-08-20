@@ -28,7 +28,7 @@ func TestExportP12(t *testing.T) {
 	p, err := pki.NewWithFS(pkiDir, pki.Config{})
 	require.NoError(t, err)
 
-	data, err := p.ExportP12("client1", "testpassword")
+	data, err := p.ExportP12("client1", pki.ExportP12Options{Password: "testpassword"})
 	require.NoError(t, err) // fails: ErrNotImplemented
 	assert.NotEmpty(t, data)
 }
@@ -40,7 +40,7 @@ func TestExportP7(t *testing.T) {
 	p, err := pki.NewWithFS(pkiDir, pki.Config{})
 	require.NoError(t, err)
 
-	data, err := p.ExportP7("client1")
+	data, err := p.ExportP7("client1", pki.ExportP7Options{})
 	require.NoError(t, err) // fails: ErrNotImplemented
 	assert.NotEmpty(t, data)
 }
@@ -64,7 +64,7 @@ func TestExportP1(t *testing.T) {
 	p, err := pki.NewWithFS(pkiDir, pki.Config{})
 	require.NoError(t, err)
 
-	data, err := p.ExportP1("client1")
+	data, err := p.ExportP1("client1", "")
 	require.NoError(t, err) // fails: ErrNotImplemented
 	assert.NotEmpty(t, data)
 }

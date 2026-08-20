@@ -1,72 +1,84 @@
 # easy-rsa Command Parity
 
-This document tracks the correspondence between easy-rsa commands and go-easyrsa library methods.
+This document tracks the correspondence between Easy-RSA commands and public
+`*pki.PKI` methods. The Cobra CLI in `cmd/go-easyrsa` is a thin adapter over
+these methods: it parses argv/environment input, builds typed options, formats
+results, and maps exit status. Crypto, ASN.1, PKCS, lifecycle, locking, path
+handling, randomness, and artifact persistence live in the root library.
 
-The repository also contains a Cobra-based `go-easyrsa` CLI in
-`cmd/go-easyrsa`, implemented on top of these methods. Its 34-command
-positive-compatibility subset is verified by E2E against the pinned Easy-RSA
-v3.2.6 reference. Ten remaining upstream commands are explicitly deferred
-rather than claimed as complete parity.
-
-For command/flag/env parity tracking of the CLI itself, see
+The 34-command positive-compatibility subset is verified by E2E against pinned
+Easy-RSA v3.2.6. Ten upstream commands remain explicitly deferred. For detailed
+CLI flag and environment coverage, see
 [`docs/go-easyrsa-cli-parity.md`](go-easyrsa-cli-parity.md).
 
-## Command → Method Mapping
+## Command → method mapping
 
-| easy-rsa command            | v2 status                           |
-|-----------------------------|-------------------------------------|
-| `build-ca`                  | ✅ `PKI.BuildCA()`                  |
-| `renew-ca`                  | ✅ `PKI.RenewCA()`                  |
-| `gen-req [name]`            | ✅ `PKI.GenReq(name, opts)`         |
-| `import-req`                | ✅ `PKI.ImportReq(name, csrPEM)`    |
-| `sign-req [type] [name]`    | ✅ `PKI.SignReq(name, type, opts)`  |
-| `build-client-full`         | ✅ `PKI.BuildClientFull(name, opts)`|
-| `build-server-full`         | ✅ `PKI.BuildServerFull(name, opts)`|
-| `build-serverClient-full`   | ✅ `PKI.BuildServerClientFull()`    |
-| `expire [name]`             | ✅ `PKI.ExpireCert(name)`           |
-| `renew [name]`              | ✅ `PKI.Renew(name, opts)`          |
-| `revoke` / `revoke-issued` | ✅ `PKI.Revoke(name, reason)`       |
-| `revoke-expired [name]`     | ✅ `PKI.RevokeExpired(name, reason)`|
-| `gen-crl`                   | ✅ `PKI.GenCRL()`                   |
-| `show-req [name]`           | ✅ `PKI.ShowReq(name)`              |
-| `show-cert [name]`          | ✅ `PKI.ShowCert(name)`             |
-| `show-ca`                   | ✅ `PKI.ShowCA()`                   |
-| `show-crl`                  | ✅ `PKI.ShowCRL()`                  |
-| `show-expire [days]`        | ✅ `PKI.ShowExpiring(days)`         |
-| `show-revoke`               | ✅ `PKI.ShowRevoked()`              |
-| `show-eku [name]`           | ✅ `PKI.ShowEKU(name)`              |
-| `verify-cert [name]`        | ✅ `PKI.VerifyCert(name)`           |
-| `export-p12`                | ✅ `PKI.ExportP12(name, password)`  |
-| `export-p7`                 | ✅ `PKI.ExportP7(name)`             |
-| `export-p8`                 | ✅ `PKI.ExportP8(name, password)`   |
-| `export-p1`                 | ✅ `PKI.ExportP1(name)`             |
-| `gen-dh`                    | ✅ `PKI.GenDH(bits)`                |
-| `update-db`                 | ✅ `PKI.UpdateDB()`                 |
-| `set-pass [name]`           | ✅ `PKI.SetPass(name, old, new)`    |
-| `serial` / `check-serial`   | ✅ `PKI.CheckSerial(serial)`        |
-| `init-pki`                  | via `NewWithFS()` (auto-creates dirs)|
+| Easy-RSA command | Public PKI method |
+|---|---|
+| `init-pki` | `PKI.InitPKI(options)` |
+| `build-ca` | `PKI.BuildCA(options...)` |
+| `renew-ca` | `PKI.RenewCA(options...)` |
+| `gen-req` | `PKI.GenReq(name, options...)` |
+| `import-req` | `PKI.ImportReq(name, csrPEM)` |
+| `sign-req` | `PKI.SignReq(name, type, options...)` |
+| `build-client-full` | `PKI.BuildClientFull(name, options...)` |
+| `build-server-full` | `PKI.BuildServerFull(name, options...)` |
+| `build-serverClient-full` | `PKI.BuildServerClientFull(name, options...)` |
+| `expire` | `PKI.Expire(name)` |
+| `renew` | `PKI.Renew(name, options...)` |
+| `revoke` | `PKI.Revoke(name, reason)` |
+| `revoke-issued` | `PKI.RevokeIssued(name, reason)` |
+| `revoke-expired` | `PKI.RevokeExpired(name, reason)` |
+| `gen-crl` | `PKI.GenCRL()` |
+| `show-req` | `PKI.ShowReq(name)` and `CSR.Info()` |
+| `show-cert` | `PKI.ShowCert(name)` |
+| `show-ca` | `PKI.ShowCA()` |
+| `show-crl` | `PKI.ShowCRL()` |
+| `show-expire` | `PKI.ShowExpiring(days)` |
+| `show-revoke` | `PKI.ShowRevoked()` |
+| `show-eku` | `PKI.ShowEKU(nameOrPath)` |
+| `verify-cert` | `PKI.VerifyCert(name)` |
+| `export-p12` | `PKI.ExportP12(name, options)` |
+| `export-p7` | `PKI.ExportP7(name, options)` |
+| `export-p8` | `PKI.ExportP8(name, password)` |
+| `export-p1` | `PKI.ExportP1(name, password)` |
+| `gen-dh` | `PKI.GenDH(bits)` |
+| `update-db` | `PKI.UpdateDB()` |
+| `set-pass` | `PKI.SetPass(name, oldPassword, newPassword)` |
+| `serial` | `PKI.Serial(serial)` |
+| `check-serial` | `PKI.CheckSerial(serial)` |
+| `display-dn` | `PKI.DisplayDN(form, path)` |
+| `rand` | `PKI.Rand(count, writer)` |
 
-The CLI adds Easy-RSA filesystem lifecycle behavior around several methods:
-`expire` moves `issued/NAME.crt` to `expired/NAME.crt`, and revoke commands
-archive files under `revoked/*_by_serial`. It also implements the stateless
-`display-dn` and `rand` utilities. The library methods retain backend-neutral
-index/CRL semantics and therefore are not byte-for-byte CLI implementations of
-those shell commands.
+## Library-owned command semantics
 
-Additional library extensions (no easy-rsa equivalent):
+- `InitPKI` distinguishes fresh initialization from an explicit owned-PKI
+  reset; foreign storage is never replaced.
+- `Expire`, `Renew`, `RevokeIssued`, and `RevokeExpired` perform Easy-RSA file
+  lifecycle changes and index updates in backend transactions.
+- Revoke methods do not implicitly generate a CRL. `gen-crl` is a separate
+  operation, matching Easy-RSA.
+- `GenCRL`, `GenDH`, and export methods persist their fixed Easy-RSA artifacts
+  and return the exact bytes written.
+- Read views are non-mutating. `display-dn` and `rand` use transient memory PKIs
+  and do not open or create a filesystem PKI.
 
-| Operation       | Method                              |
-|-----------------|-------------------------------------|
-| Revoke by serial| `PKI.RevokeBySerial(serial, reason)`|
-| Check revoked   | `PKI.IsRevoked(serial)`             |
+Additional library extensions without direct Easy-RSA command equivalents:
 
-## easy-rsa Reference
+| Operation | Method |
+|---|---|
+| Index-only expiry | `PKI.ExpireCert(name)` |
+| Revoke by serial and regenerate CRL | `PKI.RevokeBySerial(serial, reason)` |
+| Check CRL revocation | `PKI.IsRevoked(serial)` |
+| Snapshot migration | `PKI.ExportSnapshot()` / `PKI.ImportSnapshot(...)` |
+| Orphan cleanup | `PKI.Clean()` |
 
-The easy-rsa binary is available as a git submodule at `subprojects/easy-rsa/`.
-It is used as a reference implementation and for e2e testing.
+## Easy-RSA reference
 
+The pinned reference is available as the `subprojects/easy-rsa` git submodule
+and is used by authoritative E2E tests:
+
+```text
+v3.2.6
+0d746eec3f06210ae1710d17b9c8d38428058e19
 ```
-subprojects/easy-rsa/easyrsa3/easyrsa --help
-```
-
-See `docs/design.md` for the v2 library architecture.

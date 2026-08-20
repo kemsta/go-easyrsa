@@ -1,9 +1,9 @@
 //go:build !(aix || android || darwin || dragonfly || freebsd || illumos || ios || linux || netbsd || openbsd || solaris)
 
-package main
+package pki
 
 import "os"
 
-func openLifecycleSource(root *os.Root, name string) (*os.File, error) {
-	return root.Open(name)
+func openPKIInput(name string) (*os.File, error) {
+	return os.Open(name)
 }

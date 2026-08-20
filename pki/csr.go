@@ -20,6 +20,9 @@ import (
 // The CSR PEM is returned and also stored via CSRStorage.
 // The key is stored in KeyStorage (cert-less pair).
 func (p *PKI) GenReq(name string, opts ...Option) (csrPEM []byte, err error) {
+	if !p.bound() {
+		return withUpdate(p, func(bound *PKI) ([]byte, error) { return bound.GenReq(name, opts...) })
+	}
 	if err := validateEntityName(name); err != nil {
 		return nil, err
 	}
@@ -93,6 +96,9 @@ func (p *PKI) GenReq(name string, opts ...Option) (csrPEM []byte, err error) {
 
 // ImportReq stores an externally generated CSR under the given name.
 func (p *PKI) ImportReq(name string, csrPEM []byte) error {
+	if !p.bound() {
+		return withUpdateError(p, func(bound *PKI) error { return bound.ImportReq(name, csrPEM) })
+	}
 	if err := validateEntityName(name); err != nil {
 		return err
 	}
@@ -109,6 +115,11 @@ func (p *PKI) ImportReq(name string, csrPEM []byte) error {
 
 // SignReq signs a stored CSR and returns the resulting certificate pair.
 func (p *PKI) SignReq(name string, certType cert.CertType, opts ...Option) (*cert.Pair, error) {
+	if !p.bound() {
+		return withUpdate(p, func(bound *PKI) (*cert.Pair, error) {
+			return bound.SignReq(name, certType, opts...)
+		})
+	}
 	if err := validateEntityName(name); err != nil {
 		return nil, err
 	}
@@ -247,10 +258,12 @@ func (p *PKI) SignReq(name string, certType cert.CertType, opts ...Option) (*cer
 		return nil, err
 	}
 
-	// Retrieve existing key if present (from GenReq).
+	// Retrieve the pending/current private key if present (from GenReq).
 	var keyPEM []byte
-	if existing, err := p.storage.GetLastByName(name); err == nil {
-		keyPEM = existing.KeyPEM
+	if existingKey, err := p.storage.GetPrivateKey(name); err == nil {
+		keyPEM = existingKey
+	} else if !errors.Is(err, storage.ErrNotFound) {
+		return nil, err
 	}
 
 	pair := &cert.Pair{Name: name, CertPEM: certPEM, KeyPEM: keyPEM}

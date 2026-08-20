@@ -1,6 +1,8 @@
 package pki
 
 import (
+	"bytes"
+	"crypto/x509"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -18,10 +20,15 @@ type Snapshot struct {
 	Index      []storage.IndexEntry
 	CRLPEM     []byte
 	NextSerial *big.Int
+	Current    []storage.CurrentCertificate
+	Lifecycle  storage.LifecycleState
 }
 
 // ExportSnapshot exports PKI metadata in a storage-agnostic form.
 func (p *PKI) ExportSnapshot() (*Snapshot, error) {
+	if !p.bound() {
+		return withView(p, func(bound *PKI) (*Snapshot, error) { return bound.ExportSnapshot() })
+	}
 	entries, err := p.index.Query(storage.IndexFilter{})
 	if err != nil {
 		return nil, err
@@ -32,17 +39,34 @@ func (p *PKI) ExportSnapshot() (*Snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
+	lifecycle, err := p.lifecycle.ExportState()
+	if err != nil {
+		return nil, err
+	}
+	currentStore, ok := p.storage.(storage.CurrentCertificateStore)
+	if !ok {
+		return nil, errors.New("pki: key storage does not support current-certificate snapshots")
+	}
+	current, err := currentStore.CurrentCertificates()
+	if err != nil {
+		return nil, err
+	}
 
 	return &Snapshot{
 		CAName:     p.config.CAName,
 		Index:      entries,
 		CRLPEM:     crlPEM,
 		NextSerial: nextSerialFromEntries(entries),
+		Current:    current,
+		Lifecycle:  lifecycle,
 	}, nil
 }
 
 // ExportPairs streams certificate pairs in ascending serial order where possible.
 func (p *PKI) ExportPairs(yield func(*cert.Pair) error) error {
+	if !p.bound() {
+		return withViewError(p, func(bound *PKI) error { return bound.ExportPairs(yield) })
+	}
 	if yield == nil {
 		return errors.New("pki: yield must not be nil")
 	}
@@ -67,6 +91,9 @@ func (p *PKI) ExportPairs(yield func(*cert.Pair) error) error {
 // ImportSnapshot imports PKI metadata and a streamed pair set into this PKI.
 // The target PKI is expected to be empty/newly created.
 func (p *PKI) ImportSnapshot(snapshot *Snapshot, stream storage.PairStream) error {
+	if !p.bound() {
+		return withUpdateError(p, func(bound *PKI) error { return bound.ImportSnapshot(snapshot, stream) })
+	}
 	if snapshot == nil {
 		return errors.New("pki: snapshot must not be nil")
 	}
@@ -78,6 +105,13 @@ func (p *PKI) ImportSnapshot(snapshot *Snapshot, stream storage.PairStream) erro
 	}
 	if p.config.CAName != snapshot.CAName {
 		return fmt.Errorf("pki: target CAName %q does not match snapshot CAName %q", p.config.CAName, snapshot.CAName)
+	}
+	empty, err := p.components.Empty()
+	if err != nil {
+		return fmt.Errorf("pki: inspect snapshot target: %w", err)
+	}
+	if !empty {
+		return fmt.Errorf("pki: snapshot target is not empty: %w", storage.ErrConflict)
 	}
 
 	if replacer, ok := p.storage.(storage.PairReplacer); ok {
@@ -92,6 +126,14 @@ func (p *PKI) ImportSnapshot(snapshot *Snapshot, stream storage.PairStream) erro
 		}
 	}
 
+	currentStore, ok := p.storage.(storage.CurrentCertificateStore)
+	if !ok {
+		return errors.New("pki: target key storage does not support current-certificate snapshots")
+	}
+	if err := currentStore.ReplaceCurrentCertificates(snapshot.Current); err != nil {
+		return err
+	}
+
 	if replacer, ok := p.index.(storage.IndexReplacer); ok {
 		if err := replacer.ReplaceAll(snapshot.Index); err != nil {
 			return err
@@ -100,9 +142,40 @@ func (p *PKI) ImportSnapshot(snapshot *Snapshot, stream storage.PairStream) erro
 		return errors.New("pki: target index does not support snapshot import")
 	}
 
+	if err := p.lifecycle.ReplaceState(snapshot.Lifecycle); err != nil {
+		return err
+	}
+
 	if len(snapshot.CRLPEM) > 0 {
+		block, trailing := pem.Decode(snapshot.CRLPEM)
+		if block == nil || block.Type != "X509 CRL" || len(bytes.TrimSpace(trailing)) != 0 {
+			return errors.New("pki: snapshot CRL contains no valid X509 CRL PEM block")
+		}
+		revocationList, err := x509.ParseRevocationList(block.Bytes)
+		if err != nil {
+			return fmt.Errorf("pki: parse snapshot CRL: %w", err)
+		}
+		caPair, err := p.storage.GetLastByName(snapshot.CAName)
+		if err != nil {
+			return fmt.Errorf("pki: load imported CA for CRL verification: %w", err)
+		}
+		caCertificate, err := caPair.Certificate()
+		if err != nil {
+			return fmt.Errorf("pki: parse imported CA for CRL verification: %w", err)
+		}
+		if err := revocationList.CheckSignatureFrom(caCertificate); err != nil {
+			return fmt.Errorf("pki: verify snapshot CRL signature: %w", err)
+		}
 		if err := p.crlHolder.Put(snapshot.CRLPEM); err != nil {
 			return err
+		}
+		for _, artifact := range []storage.Artifact{
+			{Path: "crl.pem", Data: snapshot.CRLPEM, Visibility: storage.ArtifactPublic},
+			{Path: "crl.der", Data: block.Bytes, Visibility: storage.ArtifactPublic},
+		} {
+			if err := p.artifacts.PutArtifact(artifact); err != nil {
+				return err
+			}
 		}
 	}
 

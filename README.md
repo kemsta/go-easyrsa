@@ -11,7 +11,7 @@ The library currently provides typed equivalents for these core operations:
 
 | easy-rsa command | go-easyrsa method |
 |---|---|
-| `init-pki` | `pki.NewWithFS(dir, cfg)` |
+| `init-pki` | `InitPKI(pki.InitPKIOptions{...})` |
 | `build-ca` | `BuildCA()` |
 | `gen-req` | `GenReq(name)` |
 | `sign-req` | `SignReq(name, certType)` |
@@ -20,25 +20,27 @@ The library currently provides typed equivalents for these core operations:
 | `build-serverClient-full` | `BuildServerClientFull(name)` |
 | `import-req` | `ImportReq(name, csrPEM)` |
 | `renew` | `Renew(name)` / `RenewCA()` |
-| `revoke` | `Revoke(name, reason)` |
+| `revoke` / `revoke-issued` | `Revoke(name, reason)` / `RevokeIssued(name, reason)` |
 | `revoke-expired` | `RevokeExpired(name, reason)` |
 | `gen-crl` | `GenCRL()` |
 | `gen-dh` | `GenDH(bits)` |
-| `show-req` | `ShowReq(name)` |
+| `show-req` | `ShowReq(name)` and `CSR.Info()` |
 | `show-cert` / `show-ca` | `ShowCert(name)` / `ShowCA()` |
-| `show-eku` | `ShowEKU(name)` |
+| `show-eku` | `ShowEKU(nameOrPath)` |
 | `show-crl` | `ShowCRL()` |
 | `show-expire` | `ShowExpiring(days)` |
 | `show-revoke` | `ShowRevoked()` |
 | `verify-cert` | `VerifyCert(name)` |
 | `update-db` | `UpdateDB()` |
-| `expire` | `ExpireCert(name)` |
-| `export-p12` | `ExportP12(name, password)` |
-| `export-p7` | `ExportP7(name)` |
+| `expire` | `Expire(name)` |
+| `export-p12` | `ExportP12(name, options)` |
+| `export-p7` | `ExportP7(name, options)` |
 | `export-p8` | `ExportP8(name, password)` |
-| `export-p1` | `ExportP1(name)` |
+| `export-p1` | `ExportP1(name, password)` |
 | `set-pass` | `SetPass(name, oldPass, newPass)` |
-| `serial` / `check-serial` | `CheckSerial(serial)` |
+| `serial` / `check-serial` | `Serial(serial)` / `CheckSerial(serial)` |
+| `display-dn` | `DisplayDN(form, path)` |
+| `rand` | `Rand(count, writer)` |
 
 The filesystem backend follows the current Easy-RSA PKI layout for the operations covered by the interoperability tests.
 
@@ -53,8 +55,8 @@ For legacy v1 filesystem layout support, see [docs/legacy.md](docs/legacy.md).
 - **Key algorithms** - RSA (2048/3072/4096), ECDSA (P-256/P-384/P-521), Ed25519
 - **Key encryption** - OpenSSL-compatible PBES2/PKCS#8 using AES-256-CBC and PBKDF2-HMAC-SHA256 (100,000 iterations), with legacy encrypted PEM read compatibility
 - **Export formats** - PKCS#12, PKCS#7, PKCS#8, PKCS#1, Diffie-Hellman parameters
-- **Pluggable storage** - 5 clean interfaces (`KeyStorage`, `CSRStorage`, `IndexDB`, `SerialProvider`, `CRLHolder`); bring your own backend (database, S3, vault) or use the built-in filesystem/in-memory implementations
-- **Crash-safe writes** - atomic file operations (temp → fsync → rename) for index and CRL
+- **Pluggable transactional storage** - one `storage.Backend` coordinates independently testable key, CSR, index, serial, CRL, artifact, and lifecycle facets
+- **Transactional mutations** - filesystem and memory backends lock, commit, and roll back complete PKI operations; durable filesystem journals recover interrupted commits
 - **Orphan cleanup** - `Clean()` removes cert/key files not tracked by the index
 
 ---
@@ -234,7 +236,7 @@ err = p.Revoke("alice", cert.ReasonKeyCompromise)
 // Revoke by serial number
 err = p.RevokeBySerial(serial, cert.ReasonSuperseded)
 
-// Regenerate CRL after revocation (automatic in Revoke*)
+// Revocation and CRL publication are separate Easy-RSA operations.
 crlPEM, err := p.GenCRL()
 
 // Check if a certificate is revoked
@@ -245,10 +247,10 @@ revoked, err := p.IsRevoked(serial)
 
 ```go
 // PKCS#12 bundle (for browsers, Windows)
-p12, err := p.ExportP12("alice", "export-password")
+p12, err := p.ExportP12("alice", pki.ExportP12Options{Password: "export-password"})
 
 // PKCS#7 certificate chain (no private key)
-p7, err := p.ExportP7("alice")
+p7, err := p.ExportP7("alice", pki.ExportP7Options{})
 
 // PKCS#8 private key
 p8, err := p.ExportP8("alice", "key-password")
@@ -263,12 +265,19 @@ dh, err := p.GenDH(2048)
 import "github.com/kemsta/go-easyrsa/v2/storage/memory"
 
 // In-memory backend - ideal for tests
-ks, csr, idx, sp, crl := memory.New()
-p, err := pki.New(pki.Config{NoPass: true}, ks, csr, idx, sp, crl)
+backend := memory.NewBackend()
+p, err := pki.New(pki.Config{NoPass: true}, backend)
 if err != nil {
     log.Fatal(err)
 }
 ```
+
+`pki.New` now accepts one aggregate `storage.Backend`; callers using the former
+five-component constructor must wrap or migrate their storage implementation.
+`storage/fs` and `storage/memory` implement the full writable contract.
+`storage/legacy` is read-only and returns `storage.ErrReadOnly` for mutations.
+`OpenWithFS` never creates a layout, while `NewWithFS` only ensures missing
+layout directories and never resets an existing PKI.
 
 ---
 

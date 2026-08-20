@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/elliptic"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,8 +40,11 @@ func newInitPKICmd(opts *cliOptions) *cobra.Command {
 				}
 				cfg.Curve = curve
 			}
-			_, err = pki.NewWithFS(opts.pkiDir, cfg)
+			pk, err := pki.OpenWithFS(opts.pkiDir, cfg)
 			if err != nil {
+				return err
+			}
+			if err := pk.InitPKI(pki.InitPKIOptions{Reset: opts.batch}); err != nil {
 				return err
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "initialized PKI at %s\n", opts.pkiDir)
@@ -250,17 +252,11 @@ func newExpireCmd(opts *cliOptions) *cobra.Command {
 		Short: "Move a current certificate to the expired directory",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := validateLifecycleName(args[0]); err != nil {
+			pk, _, err := openPKI(opts, nil)
+			if err != nil {
 				return err
 			}
-			if _, _, err := openPKI(opts, nil); err != nil {
-				return err
-			}
-			return movePKIFile(
-				opts.pkiDir,
-				filepath.Join("issued", args[0]+".crt"),
-				filepath.Join("expired", args[0]+".crt"),
-			)
+			return pk.Expire(args[0])
 		},
 	}
 }
@@ -302,35 +298,14 @@ func newRevokeCmd(opts *cliOptions, use string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := validateLifecycleName(args[0]); err != nil {
-				return err
-			}
 			pk, _, err := openPKI(opts, nil)
 			if err != nil {
 				return err
 			}
-			return withLifecycleSession(opts.pkiDir, func(session *lifecycleSession) error {
-				certificateFile, err := session.readRegular(filepath.Join("issued", args[0]+".crt"))
-				if err != nil {
-					return err
-				}
-				pair := &cert.Pair{Name: args[0], CertPEM: certificateFile.data}
-				serial, err := pair.Serial()
-				if err != nil {
-					return err
-				}
-				staged, err := session.stageIssuedCertificate(args[0], serial, certificateFile.info)
-				if err != nil {
-					return err
-				}
-				if err := pk.RevokeBySerial(serial, reason); err != nil {
-					return errors.Join(err, staged.Rollback())
-				}
-				if err := staged.Commit(); err != nil {
-					return err
-				}
-				return removeRevokedExports(session, args[0])
-			})
+			if use == "revoke-issued" {
+				return pk.RevokeIssued(args[0], reason)
+			}
+			return pk.Revoke(args[0], reason)
 		},
 	}
 }
@@ -345,32 +320,11 @@ func newRevokeExpiredCmd(opts *cliOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := validateLifecycleName(args[0]); err != nil {
-				return err
-			}
 			pk, _, err := openPKI(opts, nil)
 			if err != nil {
 				return err
 			}
-			return withLifecycleSession(opts.pkiDir, func(session *lifecycleSession) error {
-				certificateFile, err := session.readRegular(filepath.Join("expired", args[0]+".crt"))
-				if err != nil {
-					return err
-				}
-				pair := &cert.Pair{Name: args[0], CertPEM: certificateFile.data}
-				serial, err := pair.Serial()
-				if err != nil {
-					return err
-				}
-				staged, err := session.stageExpiredCertificate(args[0], serial, certificateFile.info)
-				if err != nil {
-					return err
-				}
-				if err := pk.RevokeBySerial(serial, reason); err != nil {
-					return errors.Join(err, staged.Rollback())
-				}
-				return staged.Commit()
-			})
+			return pk.RevokeExpired(args[0], reason)
 		},
 	}
 }
@@ -389,15 +343,14 @@ func newGenCRLCmd(opts *cliOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			crlPEM, err := pk.GenCRL()
+			if _, err := pk.GenCRL(); err != nil {
+				return err
+			}
+			artifactPath, err := filepath.Abs(filepath.Join(opts.pkiDir, "crl.pem"))
 			if err != nil {
 				return err
 			}
-			path, err := writePKIArtifact(opts.pkiDir, "crl.pem", crlPEM, 0o644)
-			if err != nil {
-				return err
-			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", path)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", artifactPath)
 			return err
 		},
 	}
@@ -417,15 +370,14 @@ func newGenDHCmd(opts *cliOptions) *cobra.Command {
 			if bits == 0 {
 				bits = 2048
 			}
-			data, err := pk.GenDH(bits)
+			if _, err := pk.GenDH(bits); err != nil {
+				return err
+			}
+			artifactPath, err := filepath.Abs(filepath.Join(opts.pkiDir, "dh.pem"))
 			if err != nil {
 				return err
 			}
-			path, err := writePKIArtifact(opts.pkiDir, "dh.pem", data, 0o644)
-			if err != nil {
-				return err
-			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", path)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", artifactPath)
 			return err
 		},
 	}

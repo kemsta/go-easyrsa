@@ -113,6 +113,9 @@ func (e *certPutFailKeyStorage) GetByName(name string) ([]*cert.Pair, error) {
 func (e *certPutFailKeyStorage) GetBySerial(serial *big.Int) (*cert.Pair, error) {
 	return e.inner.GetBySerial(serial)
 }
+func (e *certPutFailKeyStorage) GetPrivateKey(name string) ([]byte, error) {
+	return e.inner.GetPrivateKey(name)
+}
 func (e *certPutFailKeyStorage) DeleteByName(name string) error {
 	return e.inner.DeleteByName(name)
 }
@@ -141,8 +144,7 @@ var errDiskFull = errors.New("simulated disk full")
 
 // newTestPKI creates a PKI instance backed by in-memory storage.
 func newTestPKI(cfg pki.Config) *pki.PKI {
-	ks, cs, idx, sp, crl := memory.New()
-	p, err := pki.New(cfg, ks, cs, idx, sp, crl)
+	p, err := pki.NewWithMemory(cfg)
 	if err != nil {
 		panic(err)
 	}
@@ -151,7 +153,7 @@ func newTestPKI(cfg pki.Config) *pki.PKI {
 
 func mustNewPKI(t *testing.T, cfg pki.Config, ks storage.KeyStorage, cs storage.CSRStorage, idx storage.IndexDB, sp storage.SerialProvider, crl storage.CRLHolder) *pki.PKI {
 	t.Helper()
-	p, err := pki.New(cfg, ks, cs, idx, sp, crl)
+	p, err := pki.New(cfg, newTestBackend(ks, cs, idx, sp, crl))
 	require.NoError(t, err)
 	return p
 }
@@ -536,7 +538,7 @@ func TestSignReq_PathTraversalInName(t *testing.T) {
 
 	csrPEM, err := p.GenReq("legit")
 	require.NoError(t, err)
-	require.NoError(t, cs.PutCSR("../evil", csrPEM))
+	require.Error(t, cs.PutCSR("../evil", csrPEM))
 
 	_, err = p.SignReq("../evil", cert.CertTypeClient)
 	assert.Error(t, err,
@@ -753,43 +755,45 @@ func TestRenew_OldCertNoLongerValidAfterRenew(t *testing.T) {
 // TestRenew_OldCertIndexUpdateFailureIsReturned verifies that Renew propagates
 // the index.Update failure for the old cert's serial.
 func TestRenew_OldCertIndexUpdateFailureIsReturned(t *testing.T) {
-	ks, cs, idx, sp, crl := memory.New()
-	goodP := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+	backend := memory.NewBackend()
+	goodP, err := pki.New(pki.Config{NoPass: true}, backend)
+	require.NoError(t, err)
 	buildTestCA(t, goodP)
-	_, err := goodP.BuildClientFull("client1")
+	original, err := goodP.BuildClientFull("client1")
+	require.NoError(t, err)
+	originalSerial, err := original.Serial()
 	require.NoError(t, err)
 
-	failIdx := &errUpdateIndexDB{inner: idx, errOnUpdate: errDiskFull}
-	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, failIdx, sp, crl)
-
+	p, err := pki.New(pki.Config{NoPass: true}, &indexUpdateFailureBackend{Backend: backend, err: errDiskFull})
+	require.NoError(t, err)
 	_, err = p.Renew("client1")
-	assert.Error(t, err,
-		"Renew must propagate the index.Update failure for the old cert's serial; "+
-			"silencing it with `_ =` leaves the old cert as StatusValid and returns "+
-			"a misleadingly successful result to the caller")
+	require.ErrorIs(t, err, errDiskFull)
+
+	current, err := goodP.ShowCert("client1")
+	require.NoError(t, err)
+	currentSerial, err := current.Serial()
+	require.NoError(t, err)
+	require.Zero(t, currentSerial.Cmp(originalSerial), "failed renewal must restore the issued certificate")
 }
 
-// TestRenew_NoCertAccumulationInMemoryStorage verifies that repeated Renew calls
-// do not accumulate stale cert pairs in memory storage.
-func TestRenew_NoCertAccumulationInMemoryStorage(t *testing.T) {
-	ks, cs, idx, sp, crl := memory.New()
-	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+func TestRenewPreservesHistoryAndRejectsOccupiedRenewalSlot(t *testing.T) {
+	p := newTestPKI(pki.Config{NoPass: true})
 	buildTestCA(t, p)
-
-	_, err := p.BuildClientFull("client1")
+	original, err := p.BuildClientFull("client1")
+	require.NoError(t, err)
+	originalSerial, err := original.Serial()
 	require.NoError(t, err)
 
-	for i := 0; i < 3; i++ {
-		_, err = p.Renew("client1")
-		require.NoError(t, err)
-	}
-
-	all, err := ks.GetAll()
+	renewed, err := p.Renew("client1")
 	require.NoError(t, err)
+	renewedSerial, err := renewed.Serial()
+	require.NoError(t, err)
+	require.NotZero(t, originalSerial.Cmp(renewedSerial))
+	_, err = p.Renew("client1")
+	require.ErrorIs(t, err, storage.ErrConflict)
 
-	assert.Len(t, all, 2,
-		"GetAll should return exactly 2 entries (CA + current client1); "+
-			"extra entries are stale cert pairs that accumulate in memory after each Renew")
+	pairs := collectPairs(t, p)
+	require.Len(t, pairs, 3, "CA, archived original, and current replacement must remain addressable")
 }
 
 // --- ExpireCert ---
@@ -914,6 +918,15 @@ func TestRevoke_Basic(t *testing.T) {
 	serial, _ := pair.Serial()
 	revoked, err := p.IsRevoked(serial)
 	require.NoError(t, err)
+	assert.False(t, revoked, "command-equivalent revoke must not generate a CRL")
+	entry, err := p.CheckSerial(serial)
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+	assert.Equal(t, storage.StatusRevoked, entry.Status)
+	_, err = p.GenCRL()
+	require.NoError(t, err)
+	revoked, err = p.IsRevoked(serial)
+	require.NoError(t, err)
 	assert.True(t, revoked)
 }
 
@@ -925,42 +938,42 @@ func TestRevoke_NotFound(t *testing.T) {
 }
 
 func TestRevoke_IndexNotFound(t *testing.T) {
-	ks, cs, idx, sp, crl := memory.New()
-	errIdx := &errUpdateIndexDB{inner: idx, errOnUpdate: storage.ErrNotFound}
-	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, errIdx, sp, crl)
-
-	buildTestCA(t, p)
-	_, err := p.BuildClientFull("client1")
+	backend := memory.NewBackend()
+	goodP, err := pki.New(pki.Config{NoPass: true}, backend)
+	require.NoError(t, err)
+	buildTestCA(t, goodP)
+	_, err = goodP.BuildClientFull("client1")
+	require.NoError(t, err)
+	p, err := pki.New(pki.Config{NoPass: true}, &indexUpdateFailureBackend{Backend: backend, err: storage.ErrNotFound})
 	require.NoError(t, err)
 
 	err = p.Revoke("client1", cert.ReasonUnspecified)
-	assert.Error(t, err)
+	require.ErrorIs(t, err, storage.ErrNotFound)
+	_, err = goodP.ShowCert("client1")
+	require.NoError(t, err, "failed revoke must restore the issued certificate")
 }
 
 // TestRevoke_DoesNotUpdateCRLWhenIndexUpdateFails verifies that if index.Update
 // fails during Revoke, GenCRL is NOT called and the CRL remains untouched.
 func TestRevoke_DoesNotUpdateCRLWhenIndexUpdateFails(t *testing.T) {
-	ks, cs, idx, sp, crl := memory.New()
-	errIdx := &errUpdateIndexDB{inner: idx, errOnUpdate: errors.New("index: disk full")}
-	p := mustNewPKI(t, pki.Config{NoPass: true}, ks, cs, errIdx, sp, crl)
-
-	buildTestCA(t, p)
-	_, err := p.BuildClientFull("client1")
+	backend := memory.NewBackend()
+	goodP, err := pki.New(pki.Config{NoPass: true}, backend)
+	require.NoError(t, err)
+	buildTestCA(t, goodP)
+	_, err = goodP.BuildClientFull("client1")
+	require.NoError(t, err)
+	_, err = goodP.GenCRL()
+	require.NoError(t, err)
+	crlBefore, err := goodP.ShowCRL()
 	require.NoError(t, err)
 
-	crlBefore, err := crl.Get()
+	updateErr := errors.New("index: disk full")
+	p, err := pki.New(pki.Config{NoPass: true}, &indexUpdateFailureBackend{Backend: backend, err: updateErr})
 	require.NoError(t, err)
-
-	revokeErr := p.Revoke("client1", cert.ReasonUnspecified)
-	require.Error(t, revokeErr, "Revoke must return an error when index.Update fails")
-
-	crlAfter, err := crl.Get()
+	require.ErrorIs(t, p.Revoke("client1", cert.ReasonUnspecified), updateErr)
+	crlAfter, err := goodP.ShowCRL()
 	require.NoError(t, err)
-
-	assert.Equal(t, crlBefore.Number, crlAfter.Number,
-		"CRL number advanced from %v to %v after a failed Revoke: "+
-			"GenCRL must not be called when index.Update returns an error",
-		crlBefore.Number, crlAfter.Number)
+	require.Equal(t, crlBefore.Raw, crlAfter.Raw)
 }
 
 // --- RevokeBySerial ---
@@ -991,7 +1004,7 @@ func TestRevokeExpired_NoExpired(t *testing.T) {
 	require.NoError(t, err)
 
 	err = p.RevokeExpired("client1", cert.ReasonCessationOfOperation)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, storage.ErrNotFound)
 }
 
 // TestRevokeExpired_NameVsCNMismatchInOrgMode verifies that RevokeExpired
@@ -1016,7 +1029,7 @@ func TestRevokeExpired_NameVsCNMismatchInOrgMode(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	require.NoError(t, p.ExpireCert("server1"))
+	require.NoError(t, p.Expire("server1"))
 
 	require.NoError(t, p.RevokeExpired("server1", cert.ReasonCessationOfOperation))
 
@@ -1144,10 +1157,9 @@ func TestShowRevoked_StorageGap(t *testing.T) {
 	pair, err := p.BuildClientFull("client1")
 	require.NoError(t, err)
 
-	err = p.Revoke("client1", cert.ReasonUnspecified)
-	require.NoError(t, err)
-
 	serial, err := pair.Serial()
+	require.NoError(t, err)
+	err = p.RevokeBySerial(serial, cert.ReasonUnspecified)
 	require.NoError(t, err)
 
 	// Remove the cert from storage so GetBySerial fails.
@@ -1183,6 +1195,8 @@ func TestVerifyCert_Revoked(t *testing.T) {
 
 	err = p.Revoke("client1", cert.ReasonUnspecified)
 	require.NoError(t, err)
+	_, err = p.GenCRL()
+	require.NoError(t, err)
 
 	err = p.VerifyCert("client1")
 	require.Error(t, err)
@@ -1211,10 +1225,12 @@ func TestVerifyCert_CRLSignatureIsNotVerified(t *testing.T) {
 	p1 := mustNewPKI(t, pki.Config{NoPass: true}, ks1, cs1, idx1, sp1, crl1)
 	buildTestCA(t, p1)
 
-	_, err := p1.BuildClientFull("client1")
+	pair, err := p1.BuildClientFull("client1")
+	require.NoError(t, err)
+	serial, err := pair.Serial()
 	require.NoError(t, err)
 
-	err = p1.Revoke("client1", cert.ReasonUnspecified)
+	err = p1.RevokeBySerial(serial, cert.ReasonUnspecified)
 	require.NoError(t, err)
 
 	err = p1.VerifyCert("client1")
@@ -1257,7 +1273,7 @@ func TestExportP12_Basic(t *testing.T) {
 	_, err := p.BuildClientFull("client1")
 	require.NoError(t, err)
 
-	data, err := p.ExportP12("client1", "password")
+	data, err := p.ExportP12("client1", pki.ExportP12Options{Password: "password"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, data)
 }
@@ -1269,7 +1285,7 @@ func TestExportP12_EncryptedKey(t *testing.T) {
 	_, err := p.BuildClientFull("client1", pki.WithPassphrase("x"))
 	require.NoError(t, err)
 
-	_, err = p.ExportP12("client1", "bundle-pass")
+	_, err = p.ExportP12("client1", pki.ExportP12Options{Password: "bundle-pass"})
 	assert.Error(t, err)
 
 	// With KeyPassphrase set, export should succeed.
@@ -1278,7 +1294,7 @@ func TestExportP12_EncryptedKey(t *testing.T) {
 	_, err = p2.BuildClientFull("client1", pki.WithPassphrase("x"))
 	require.NoError(t, err)
 
-	data, err := p2.ExportP12("client1", "bundle-pass")
+	data, err := p2.ExportP12("client1", pki.ExportP12Options{Password: "bundle-pass"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, data)
 }
@@ -1291,7 +1307,7 @@ func TestExportP7_Basic(t *testing.T) {
 	_, err := p.BuildClientFull("client1")
 	require.NoError(t, err)
 
-	data, err := p.ExportP7("client1")
+	data, err := p.ExportP7("client1", pki.ExportP7Options{})
 	require.NoError(t, err)
 	assert.NotEmpty(t, data)
 }
@@ -1328,7 +1344,7 @@ func TestExportP1_RSA(t *testing.T) {
 	_, err := p.BuildClientFull("client1")
 	require.NoError(t, err)
 
-	data, err := p.ExportP1("client1")
+	data, err := p.ExportP1("client1", "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, data)
 }
@@ -1339,7 +1355,7 @@ func TestExportP1_ECDSA_Error(t *testing.T) {
 	_, err := p.BuildClientFull("client1")
 	require.NoError(t, err)
 
-	_, err = p.ExportP1("client1")
+	_, err = p.ExportP1("client1", "")
 	assert.Error(t, err)
 }
 
@@ -1472,7 +1488,7 @@ func TestConfig_PassphrasesNotLeakedInStringFormatting(t *testing.T) {
 
 // --- Legacy read-only backend ---
 
-func TestNewWithLegacyFSRO_ReadsAndExports(t *testing.T) {
+func TestNewWithLegacyFSRO_ReadsAndRejectsPersistedExports(t *testing.T) {
 	dir := t.TempDir()
 	fixture := testutil.WriteLegacyFixture(t, dir)
 
@@ -1510,21 +1526,16 @@ func TestNewWithLegacyFSRO_ReadsAndExports(t *testing.T) {
 
 	require.NoError(t, p.VerifyCert("client1"))
 
-	p12, err := p.ExportP12("client1", "bundle-pass")
-	require.NoError(t, err)
-	assert.NotEmpty(t, p12)
-
-	p7, err := p.ExportP7("client1")
-	require.NoError(t, err)
-	assert.NotEmpty(t, p7)
-
-	p8, err := p.ExportP8("client1", "secret")
-	require.NoError(t, err)
-	assert.NotEmpty(t, p8)
-
-	p1, err := p.ExportP1("client1")
-	require.NoError(t, err)
-	assert.NotEmpty(t, p1)
+	_, err = p.ExportP12("client1", pki.ExportP12Options{Password: "bundle-pass"})
+	require.ErrorIs(t, err, storage.ErrReadOnly)
+	_, err = p.ExportP7("client1", pki.ExportP7Options{})
+	require.ErrorIs(t, err, storage.ErrReadOnly)
+	_, err = p.ExportP8("client1", "secret")
+	require.ErrorIs(t, err, storage.ErrReadOnly)
+	_, err = p.ExportP1("client1", "")
+	require.ErrorIs(t, err, storage.ErrReadOnly)
+	_, err = p.GenDH(128)
+	require.ErrorIs(t, err, storage.ErrReadOnly)
 }
 
 func TestNewWithLegacyFSRO_RejectsWrites(t *testing.T) {

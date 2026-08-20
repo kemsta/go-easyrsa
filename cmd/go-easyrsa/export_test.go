@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/x509"
 	"encoding/pem"
 	"os"
 	"path/filepath"
@@ -14,6 +13,49 @@ import (
 
 	"github.com/kemsta/go-easyrsa/v2/pki"
 )
+
+func TestExportOptionMapping(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		opts    cliOptions
+		tokens  map[string]bool
+		want    pki.ExportP12Options
+		wantErr bool
+	}{
+		{
+			name: "password",
+			opts: cliOptions{passOut: "pass:secret"},
+			want: pki.ExportP12Options{Password: "secret"},
+		},
+		{
+			name:   "all variants",
+			tokens: map[string]bool{"nopass": true, "noca": true, "nokey": true, "legacy": true},
+			want:   pki.ExportP12Options{NoCA: true, NoKey: true, Legacy: true},
+		},
+		{
+			name: "global nopass",
+			opts: cliOptions{noPass: true, passOut: "pass:ignored"},
+			want: pki.ExportP12Options{},
+		},
+		{name: "missing protection", wantErr: true},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			got, err := exportP12Options(&test.opts, test.tokens)
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.want, got)
+		})
+	}
+	require.Equal(t, pki.ExportP7Options{}, exportP7Options(nil))
+	require.Equal(t, pki.ExportP7Options{NoCA: true}, exportP7Options(map[string]bool{"noca": true}))
+}
 
 func TestOutputPassword_RespectsNoPass(t *testing.T) {
 	opts := defaultCLIOptions()
@@ -82,7 +124,7 @@ func TestCLI_ExportP1RejectsNonRSAKey(t *testing.T) {
 	require.NoError(t, err, out)
 	out, err = runCLI(t, "--pki-dir", dir, "--nopass", "--algo", "ec", "--curve", "secp256r1", "build-client-full", "alice")
 	require.NoError(t, err, out)
-	_, err = runCLI(t, "--pki-dir", dir, "export-p1", "alice")
+	_, err = runCLI(t, "--pki-dir", dir, "export-p1", "alice", "nopass")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "RSA")
 }
@@ -136,9 +178,9 @@ func TestCLI_ExportP12_NoKeyProducesTrustStoreOnly(t *testing.T) {
 	out, err = runCLI(t, "--pki-dir", dir, "--passout", "pass:exportpass", "export-p12", "alice", "nokey")
 	require.NoError(t, err, out)
 	data := readCLIArtifact(t, dir, "private", "alice.p12")
-	certs, err := gopkcs12.DecodeTrustStore(data, "exportpass")
+	certificates, err := gopkcs12.DecodeTrustStore(data, "exportpass")
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(certs), 1)
+	require.GreaterOrEqual(t, len(certificates), 1)
 }
 
 func TestCLI_ExportP12_LegacyIsParseable(t *testing.T) {
@@ -175,8 +217,8 @@ func TestCLI_ExportP7_NoCAOmitsCACert(t *testing.T) {
 	out, err = runCLI(t, "--pki-dir", dir, "export-p7", "alice", "noca")
 	require.NoError(t, err, out)
 	data := readCLIArtifact(t, dir, "issued", "alice.p7b")
-	certCNs := parseLocalP7CertCNs(t, data)
-	require.Equal(t, []string{"alice"}, certCNs)
+	certificateCNs := parseLocalP7CertCNs(t, data)
+	require.Equal(t, []string{"alice"}, certificateCNs)
 }
 
 func TestCLI_ExportP8WritesPrivateArtifact(t *testing.T) {
@@ -187,6 +229,9 @@ func TestCLI_ExportP8WritesPrivateArtifact(t *testing.T) {
 	require.NoError(t, err, out)
 	out, err = runCLI(t, "--pki-dir", dir, "--passout=pass:exportpass", "export-p8", "alice")
 	require.NoError(t, err, out)
+	artifactPath, err := filepath.Abs(filepath.Join(dir, "private", "alice.p8"))
+	require.NoError(t, err)
+	require.Contains(t, out, "wrote "+artifactPath)
 
 	data := readCLIArtifact(t, dir, "private", "alice.p8")
 	block, _ := pem.Decode(data)
@@ -209,20 +254,17 @@ type localP12Meta struct {
 
 func parseLocalP12Meta(t *testing.T, data []byte, password string) localP12Meta {
 	t.Helper()
-	blocks, err := gopkcs12.ToPEM(data, password)
+	privateKey, certificate, caCertificates, err := gopkcs12.DecodeChain(data, password)
 	require.NoError(t, err)
 	meta := localP12Meta{}
-	for _, block := range blocks {
-		switch block.Type {
-		case "CERTIFICATE":
-			crt, err := x509.ParseCertificate(block.Bytes)
-			require.NoError(t, err)
-			meta.CertCNs = append(meta.CertCNs, crt.Subject.CommonName)
-		default:
-			if block.Type == "PRIVATE KEY" || block.Type == "ENCRYPTED PRIVATE KEY" || block.Type == "RSA PRIVATE KEY" {
-				meta.KeyBlocks++
-			}
-		}
+	if privateKey != nil {
+		meta.KeyBlocks = 1
+	}
+	if certificate != nil {
+		meta.CertCNs = append(meta.CertCNs, certificate.Subject.CommonName)
+	}
+	for _, caCertificate := range caCertificates {
+		meta.CertCNs = append(meta.CertCNs, caCertificate.Subject.CommonName)
 	}
 	sort.Strings(meta.CertCNs)
 	return meta
@@ -234,10 +276,10 @@ func parseLocalP7CertCNs(t *testing.T, data []byte) []string {
 	require.NotNil(t, block)
 	parsed, err := pkcs7.Parse(block.Bytes)
 	require.NoError(t, err)
-	var certCNs []string
-	for _, crt := range parsed.Certificates {
-		certCNs = append(certCNs, crt.Subject.CommonName)
+	var certificateCNs []string
+	for _, certificate := range parsed.Certificates {
+		certificateCNs = append(certificateCNs, certificate.Subject.CommonName)
 	}
-	sort.Strings(certCNs)
-	return certCNs
+	sort.Strings(certificateCNs)
+	return certificateCNs
 }

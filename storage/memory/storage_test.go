@@ -99,12 +99,12 @@ func TestMemoryKeyStorage_KeyOnlyPutDoesNotHideExistingCert(t *testing.T) {
 			"Key-only Puts must update the existing pair's key in place, "+
 			"not append a new key-only entry.")
 }
-func newMemoryPKI(t *testing.T) (*memory.KeyStorage, *memory.CSRStorage, *memory.IndexDB, *memory.SerialProvider, *memory.CRLHolder, *pki.PKI) {
+func newMemoryPKI(t *testing.T) (*memory.Backend, *pki.PKI) {
 	t.Helper()
-	ks, cs, idx, sp, crl := memory.New()
-	pk, err := pki.New(pki.Config{NoPass: true, SequentialSerial: true}, ks, cs, idx, sp, crl)
+	backend := memory.NewBackend()
+	pk, err := pki.New(pki.Config{NoPass: true, SequentialSerial: true}, backend)
 	require.NoError(t, err)
-	return ks, cs, idx, sp, crl, pk
+	return backend, pk
 }
 
 func mustSerial(t *testing.T, pair *cert.Pair) *big.Int {
@@ -144,7 +144,7 @@ func pairIDs(t *testing.T, pairs []*cert.Pair) []string {
 	return ids
 }
 func TestMemoryKeyStorage_PublicCRUDAndNotFound(t *testing.T) {
-	ks, _, _, _, _, pk := newMemoryPKI(t)
+	backend, pk := newMemoryPKI(t)
 
 	_, err := pk.BuildCA()
 	require.NoError(t, err)
@@ -153,46 +153,59 @@ func TestMemoryKeyStorage_PublicCRUDAndNotFound(t *testing.T) {
 	client2, err := pk.BuildClientFull("client2")
 	require.NoError(t, err)
 
-	pairs, err := ks.GetByName("client1")
-	require.NoError(t, err)
-	require.Len(t, pairs, 1)
-	assert.Equal(t, "client1", pairs[0].Name)
+	require.NoError(t, backend.View(func(components storage.Components) error {
+		ks := components.Keys()
+		pairs, err := ks.GetByName("client1")
+		require.NoError(t, err)
+		require.Len(t, pairs, 1)
+		assert.Equal(t, "client1", pairs[0].Name)
+		pairBySerial, err := ks.GetBySerial(mustSerial(t, client1))
+		require.NoError(t, err)
+		assert.Equal(t, client1.Name, pairBySerial.Name)
+		all, err := ks.GetAll()
+		require.NoError(t, err)
+		require.Len(t, all, 3)
+		assert.ElementsMatch(t, []string{"ca", "client1", "client2"}, []string{all[0].Name, all[1].Name, all[2].Name})
+		return nil
+	}))
 
-	pairBySerial, err := ks.GetBySerial(mustSerial(t, client1))
-	require.NoError(t, err)
-	assert.Equal(t, client1.Name, pairBySerial.Name)
+	require.NoError(t, backend.Update(func(components storage.Components) error {
+		return components.Keys().DeleteBySerial(mustSerial(t, client2))
+	}))
+	require.NoError(t, backend.View(func(components storage.Components) error {
+		_, err := components.Keys().GetBySerial(mustSerial(t, client2))
+		assert.ErrorIs(t, err, storage.ErrNotFound)
+		_, err = components.Keys().GetByName("client2")
+		assert.ErrorIs(t, err, storage.ErrNotFound)
+		return nil
+	}))
 
-	all, err := ks.GetAll()
-	require.NoError(t, err)
-	assert.ElementsMatch(t,
-		[]string{"ca", "client1", "client2"},
-		[]string{all[0].Name, all[1].Name, all[2].Name},
-	)
-
-	require.NoError(t, ks.DeleteBySerial(mustSerial(t, client2)))
-	_, err = ks.GetBySerial(mustSerial(t, client2))
-	assert.ErrorIs(t, err, storage.ErrNotFound)
-	_, err = ks.GetByName("client2")
-	assert.ErrorIs(t, err, storage.ErrNotFound)
-
-	require.NoError(t, ks.DeleteByName("client1"))
-	_, err = ks.GetByName("client1")
-	assert.ErrorIs(t, err, storage.ErrNotFound)
-	_, err = ks.GetBySerial(mustSerial(t, client1))
-	assert.ErrorIs(t, err, storage.ErrNotFound)
-
-	_, err = ks.GetByName("missing")
-	assert.ErrorIs(t, err, storage.ErrNotFound)
-	_, err = ks.GetLastByName("missing")
-	assert.ErrorIs(t, err, storage.ErrNotFound)
-	_, err = ks.GetBySerial(big.NewInt(999))
-	assert.ErrorIs(t, err, storage.ErrNotFound)
-	assert.ErrorIs(t, ks.DeleteByName("missing"), storage.ErrNotFound)
-	assert.ErrorIs(t, ks.DeleteBySerial(big.NewInt(999)), storage.ErrNotFound)
+	require.NoError(t, backend.Update(func(components storage.Components) error {
+		return components.Keys().DeleteByName("client1")
+	}))
+	require.NoError(t, backend.View(func(components storage.Components) error {
+		ks := components.Keys()
+		_, err := ks.GetByName("client1")
+		assert.ErrorIs(t, err, storage.ErrNotFound)
+		_, err = ks.GetBySerial(mustSerial(t, client1))
+		assert.ErrorIs(t, err, storage.ErrNotFound)
+		_, err = ks.GetByName("missing")
+		assert.ErrorIs(t, err, storage.ErrNotFound)
+		_, err = ks.GetLastByName("missing")
+		assert.ErrorIs(t, err, storage.ErrNotFound)
+		_, err = ks.GetBySerial(big.NewInt(999))
+		assert.ErrorIs(t, err, storage.ErrNotFound)
+		return nil
+	}))
+	require.NoError(t, backend.Update(func(components storage.Components) error {
+		assert.ErrorIs(t, components.Keys().DeleteByName("missing"), storage.ErrNotFound)
+		assert.ErrorIs(t, components.Keys().DeleteBySerial(big.NewInt(999)), storage.ErrNotFound)
+		return nil
+	}))
 }
 
 func TestMemoryCSRStorage_PublicCRUD(t *testing.T) {
-	_, cs, _, _, _, _ := newMemoryPKI(t)
+	_, cs, _, _, _ := memory.New()
 
 	empty, err := cs.Empty()
 	require.NoError(t, err)
@@ -216,7 +229,7 @@ func TestMemoryCSRStorage_PublicCRUD(t *testing.T) {
 }
 
 func TestMemoryIndexDB_UpdateRecordAndQuery(t *testing.T) {
-	_, _, idx, sp, _, _ := newMemoryPKI(t)
+	_, _, idx, sp, _ := memory.New()
 	serial1, err := sp.Next()
 	require.NoError(t, err)
 	serial2, err := sp.Next()
@@ -288,7 +301,7 @@ func TestMemoryIndexDB_UpdateRecordAndQuery(t *testing.T) {
 }
 
 func TestMemorySerialProvider_SetNext(t *testing.T) {
-	_, _, _, sp, _, _ := newMemoryPKI(t)
+	_, _, _, sp, _ := memory.New()
 
 	assert.Error(t, sp.SetNext(nil))
 	assert.Error(t, sp.SetNext(big.NewInt(0)))
@@ -304,13 +317,16 @@ func TestMemorySerialProvider_SetNext(t *testing.T) {
 }
 
 func TestMemoryCRLHolder_GetBehavior(t *testing.T) {
-	_, _, _, _, crl, pk := newMemoryPKI(t)
+	backend, pk := newMemoryPKI(t)
 
-	list, err := crl.Get()
-	require.NoError(t, err)
-	assert.Empty(t, list.RevokedCertificateEntries)
+	require.NoError(t, backend.View(func(components storage.Components) error {
+		list, err := components.CRLs().Get()
+		require.NoError(t, err)
+		assert.Empty(t, list.RevokedCertificateEntries)
+		return nil
+	}))
 
-	_, err = pk.BuildCA()
+	_, err := pk.BuildCA()
 	require.NoError(t, err)
 	_, err = pk.BuildClientFull("client1")
 	require.NoError(t, err)
@@ -318,16 +334,26 @@ func TestMemoryCRLHolder_GetBehavior(t *testing.T) {
 	crlPEM, err := pk.GenCRL()
 	require.NoError(t, err)
 
-	require.NoError(t, crl.Put(crlPEM))
-	list, err = crl.Get()
-	require.NoError(t, err)
-	require.Len(t, list.RevokedCertificateEntries, 1)
-	assert.Equal(t, 1, list.RevokedCertificateEntries[0].ReasonCode)
+	require.NoError(t, backend.Update(func(components storage.Components) error {
+		return components.CRLs().Put(crlPEM)
+	}))
+	require.NoError(t, backend.View(func(components storage.Components) error {
+		list, err := components.CRLs().Get()
+		require.NoError(t, err)
+		require.Len(t, list.RevokedCertificateEntries, 1)
+		assert.Equal(t, 1, list.RevokedCertificateEntries[0].ReasonCode)
+		return nil
+	}))
 
-	require.NoError(t, crl.Put([]byte("not a pem")))
-	list, err = crl.Get()
-	require.NoError(t, err)
-	assert.Empty(t, list.RevokedCertificateEntries)
+	require.NoError(t, backend.Update(func(components storage.Components) error {
+		return components.CRLs().Put([]byte("not a pem"))
+	}))
+	require.NoError(t, backend.View(func(components storage.Components) error {
+		list, err := components.CRLs().Get()
+		require.NoError(t, err)
+		assert.Empty(t, list.RevokedCertificateEntries)
+		return nil
+	}))
 }
 
 func pkixName(cn string) pkix.Name { return pkix.Name{CommonName: cn} }

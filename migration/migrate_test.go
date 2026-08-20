@@ -11,7 +11,6 @@ import (
 	"github.com/kemsta/go-easyrsa/v2/migration"
 	"github.com/kemsta/go-easyrsa/v2/pki"
 	"github.com/kemsta/go-easyrsa/v2/storage"
-	"github.com/kemsta/go-easyrsa/v2/storage/memory"
 )
 
 func TestMigrate_LegacyToFS(t *testing.T) {
@@ -48,8 +47,7 @@ func TestMigrate_FSToMemoryAndBack(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, migration.Migrate(legacyPKI, fsPKI))
 
-	ks, cs, idx, sp, crl := memory.New()
-	memoryPKI, err := pki.New(pki.Config{NoPass: true}, ks, cs, idx, sp, crl)
+	memoryPKI, err := pki.NewWithMemory(pki.Config{NoPass: true})
 	require.NoError(t, err)
 	require.NoError(t, migration.Migrate(fsPKI, memoryPKI))
 
@@ -145,7 +143,7 @@ func TestMigrate_LegacyWithMissingHistoricalKey(t *testing.T) {
 	assertPairStreamsEquivalent(t, source, target)
 }
 
-func TestImportSnapshot_IntoNonEmptyTargetIsCurrentBehavior(t *testing.T) {
+func TestImportSnapshotRejectsNonEmptyTarget(t *testing.T) {
 	sourceDir := t.TempDir()
 	testutil.WriteLegacyFixture(t, sourceDir)
 	source, err := pki.NewWithLegacyFSRO(sourceDir, pki.Config{})
@@ -160,5 +158,5 @@ func TestImportSnapshot_IntoNonEmptyTargetIsCurrentBehavior(t *testing.T) {
 	require.NoError(t, err)
 
 	err = target.ImportSnapshot(snapshot, source.ExportPairs)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, storage.ErrConflict)
 }

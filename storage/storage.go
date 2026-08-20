@@ -89,6 +89,7 @@ type KeyStorage interface {
 	GetByName(name string) ([]*cert.Pair, error)   // returns ErrNotFound if none
 	GetLastByName(name string) (*cert.Pair, error) // highest serial; ErrNotFound if none
 	GetBySerial(serial *big.Int) (*cert.Pair, error)
+	GetPrivateKey(name string) ([]byte, error)
 	DeleteByName(name string) error
 	DeleteBySerial(serial *big.Int) error
 	GetAll() ([]*cert.Pair, error)
@@ -107,6 +108,21 @@ type PairExporter interface {
 // pair stream while preserving storage-specific history semantics.
 type PairReplacer interface {
 	ReplacePairs(stream PairStream) error
+}
+
+// CurrentCertificate identifies the certificate currently published at an
+// Easy-RSA name, independently of serial ordering.
+type CurrentCertificate struct {
+	Name          string
+	Serial        *big.Int
+	PrivateKeyPEM []byte
+}
+
+// CurrentCertificateStore exports and restores named current-certificate
+// ownership for snapshots. Implementations retain all serial history.
+type CurrentCertificateStore interface {
+	CurrentCertificates() ([]CurrentCertificate, error)
+	ReplaceCurrentCertificates([]CurrentCertificate) error
 }
 
 // CSRStorage stores Certificate Signing Requests (PEM-encoded).

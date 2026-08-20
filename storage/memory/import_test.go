@@ -14,14 +14,18 @@ import (
 )
 
 func TestMemoryReplacePairs_ReplacesStateAndClonesInput(t *testing.T) {
-	srcKS, _, _, _, _, srcPK := newMemoryPKI(t)
+	srcBackend, srcPK := newMemoryPKI(t)
 	_, err := srcPK.BuildCA()
 	require.NoError(t, err)
 	pair1, err := srcPK.BuildClientFull("client1")
 	require.NoError(t, err)
 	pair2, err := srcPK.BuildClientFull("client2")
 	require.NoError(t, err)
-	sourcePairs := collectExportedPairs(t, srcKS)
+	var sourcePairs []*cert.Pair
+	require.NoError(t, srcBackend.View(func(components storage.Components) error {
+		sourcePairs = collectExportedPairs(t, components.Keys().(storage.PairExporter))
+		return nil
+	}))
 
 	dstKS, _, _, _, _ := memory.New()
 	require.NoError(t, dstKS.ReplacePairs(func(yield func(*cert.Pair) error) error {
@@ -40,7 +44,12 @@ func TestMemoryReplacePairs_ReplacesStateAndClonesInput(t *testing.T) {
 	sourcePairs[0].KeyPEM[0] ^= 0xFF
 
 	gotPairs := collectExportedPairs(t, dstKS)
-	assert.Equal(t, pairIDs(t, collectExportedPairs(t, srcKS)), pairIDs(t, gotPairs))
+	var originalPairs []*cert.Pair
+	require.NoError(t, srcBackend.View(func(components storage.Components) error {
+		originalPairs = collectExportedPairs(t, components.Keys().(storage.PairExporter))
+		return nil
+	}))
+	assert.Equal(t, pairIDs(t, originalPairs), pairIDs(t, gotPairs))
 
 	got1, err := dstKS.GetBySerial(mustSerial(t, pair1))
 	require.NoError(t, err)
