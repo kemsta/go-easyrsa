@@ -2,7 +2,7 @@
 
 ## Status
 
-Written for user review. The architecture and scope were approved section by section in conversation. Implementation has not started.
+Approved for implementation. Implementation has not started.
 
 ## Background
 
