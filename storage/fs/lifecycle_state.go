@@ -14,32 +14,39 @@ import (
 	"github.com/kemsta/go-easyrsa/v2/storage"
 )
 
-func (l *LifecycleStorage) ExportState() (storage.LifecycleState, error) {
-	expired, err := l.exportNamedDirectory("expired")
-	if err != nil {
-		return storage.LifecycleState{}, err
+func (l *LifecycleStorage) ExportState() (state storage.LifecycleState, err error) {
+	err = l.withRoot(func(root *os.Root) error {
+		var err error
+		state.Expired, err = exportNamedLifecycleDirectory(root, "expired")
+		if err != nil {
+			return err
+		}
+		state.Renewed, err = exportNamedLifecycleDirectory(root, filepath.Join("renewed", "issued"))
+		if err != nil {
+			return err
+		}
+		state.Revoked, err = exportRevokedLifecycle(root)
+		return err
+	})
+	if errors.Is(err, storage.ErrNotFound) {
+		return storage.LifecycleState{}, nil
 	}
-	renewed, err := l.exportNamedDirectory(filepath.Join("renewed", "issued"))
-	if err != nil {
-		return storage.LifecycleState{}, err
-	}
-	revoked, err := l.exportRevoked()
-	if err != nil {
-		return storage.LifecycleState{}, err
-	}
-	return storage.LifecycleState{Expired: expired, Renewed: renewed, Revoked: revoked}, nil
+	return state, err
 }
 
-func (l *LifecycleStorage) exportNamedDirectory(relativeDirectory string) ([]storage.LifecycleRecord, error) {
-	directory := filepath.Join(l.pkiDir, relativeDirectory)
-	entries, err := os.ReadDir(directory)
+func exportNamedLifecycleDirectory(root *os.Root, relativeDirectory string) (records []storage.LifecycleRecord, err error) {
+	directory, err := root.Open(relativeDirectory)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	var records []storage.LifecycleRecord
+	defer func() { err = errors.Join(err, directory.Close()) }()
+	entries, err := directory.ReadDir(-1)
+	if err != nil {
+		return nil, err
+	}
 	for _, entry := range entries {
 		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !strings.HasSuffix(entry.Name(), ".crt") {
 			continue
@@ -48,7 +55,7 @@ func (l *LifecycleStorage) exportNamedDirectory(relativeDirectory string) ([]sto
 		if err := storage.ValidateEntityName(name); err != nil {
 			return nil, err
 		}
-		certificatePEM, err := readLifecycleFile(filepath.Join(directory, entry.Name()))
+		certificatePEM, err := readLifecycleRootFile(root, filepath.Join(relativeDirectory, entry.Name()))
 		if err != nil {
 			return nil, err
 		}
@@ -56,17 +63,13 @@ func (l *LifecycleStorage) exportNamedDirectory(relativeDirectory string) ([]sto
 		if err != nil {
 			return nil, err
 		}
-		record := storage.LifecycleRecord{
-			Name:           name,
-			Serial:         new(big.Int).Set(serial),
-			CertificatePEM: certificatePEM,
-		}
-		if key, err := readLifecycleFile(filepath.Join(l.pkiDir, "private", name+".key")); err == nil {
+		record := storage.LifecycleRecord{Name: name, Serial: new(big.Int).Set(serial), CertificatePEM: certificatePEM}
+		if key, err := readLifecycleRootFile(root, filepath.Join("private", name+".key")); err == nil {
 			record.PrivateKeyPEM = key
 		} else if !errors.Is(err, storage.ErrNotFound) {
 			return nil, err
 		}
-		if request, err := readLifecycleFile(filepath.Join(l.pkiDir, "reqs", name+".req")); err == nil {
+		if request, err := readLifecycleRootFile(root, filepath.Join("reqs", name+".req")); err == nil {
 			record.CSRPEM = request
 		} else if !errors.Is(err, storage.ErrNotFound) {
 			return nil, err
@@ -77,16 +80,20 @@ func (l *LifecycleStorage) exportNamedDirectory(relativeDirectory string) ([]sto
 	return records, nil
 }
 
-func (l *LifecycleStorage) exportRevoked() ([]storage.LifecycleRecord, error) {
-	directory := filepath.Join(l.pkiDir, "revoked", "certs_by_serial")
-	entries, err := os.ReadDir(directory)
+func exportRevokedLifecycle(root *os.Root) (records []storage.LifecycleRecord, err error) {
+	directoryName := filepath.Join("revoked", "certs_by_serial")
+	directory, err := root.Open(directoryName)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	var records []storage.LifecycleRecord
+	defer func() { err = errors.Join(err, directory.Close()) }()
+	entries, err := directory.ReadDir(-1)
+	if err != nil {
+		return nil, err
+	}
 	for _, entry := range entries {
 		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !strings.HasSuffix(entry.Name(), ".crt") {
 			continue
@@ -96,25 +103,25 @@ func (l *LifecycleStorage) exportRevoked() ([]storage.LifecycleRecord, error) {
 		if _, ok := serial.SetString(serialHex, 16); !ok || serial.Sign() <= 0 {
 			return nil, fmt.Errorf("storage/fs: invalid revoked serial %q", serialHex)
 		}
-		certificatePEM, err := readLifecycleFile(filepath.Join(directory, entry.Name()))
+		certificatePEM, err := readLifecycleRootFile(root, filepath.Join(directoryName, entry.Name()))
 		if err != nil {
 			return nil, err
 		}
-		name, err := l.nameForSerial(serial, certificatePEM)
+		name, err := lifecycleNameForSerial(root, serial, certificatePEM)
 		if err != nil {
 			return nil, err
 		}
-		_, markerErr := os.Stat(filepath.Join(l.pkiDir, "certs_by_serial", storage.HexSerial(serial)+".revoked-assets"))
+		_, markerErr := root.Stat(filepath.Join("certs_by_serial", storage.HexSerial(serial)+".revoked-assets"))
 		assetsArchived := markerErr == nil
 		if markerErr != nil && !errors.Is(markerErr, fs.ErrNotExist) {
 			return nil, markerErr
 		}
 		if !assetsArchived {
 			for _, candidate := range []string{
-				filepath.Join(l.pkiDir, "revoked", "private_by_serial", storage.HexSerial(serial)+".key"),
-				filepath.Join(l.pkiDir, "revoked", "reqs_by_serial", storage.HexSerial(serial)+".req"),
+				filepath.Join("revoked", "private_by_serial", storage.HexSerial(serial)+".key"),
+				filepath.Join("revoked", "reqs_by_serial", storage.HexSerial(serial)+".req"),
 			} {
-				if _, err := os.Stat(candidate); err == nil {
+				if _, err := root.Stat(candidate); err == nil {
 					assetsArchived = true
 					break
 				} else if !errors.Is(err, fs.ErrNotExist) {
@@ -122,24 +129,19 @@ func (l *LifecycleStorage) exportRevoked() ([]storage.LifecycleRecord, error) {
 				}
 			}
 		}
-		record := storage.LifecycleRecord{
-			Name:           name,
-			Serial:         new(big.Int).Set(serial),
-			CertificatePEM: certificatePEM,
-			AssetsArchived: assetsArchived,
-		}
-		keyPath := filepath.Join(l.pkiDir, "private", name+".key")
-		requestPath := filepath.Join(l.pkiDir, "reqs", name+".req")
+		record := storage.LifecycleRecord{Name: name, Serial: new(big.Int).Set(serial), CertificatePEM: certificatePEM, AssetsArchived: assetsArchived}
+		keyPath := filepath.Join("private", name+".key")
+		requestPath := filepath.Join("reqs", name+".req")
 		if assetsArchived {
-			keyPath = filepath.Join(l.pkiDir, "revoked", "private_by_serial", storage.HexSerial(serial)+".key")
-			requestPath = filepath.Join(l.pkiDir, "revoked", "reqs_by_serial", storage.HexSerial(serial)+".req")
+			keyPath = filepath.Join("revoked", "private_by_serial", storage.HexSerial(serial)+".key")
+			requestPath = filepath.Join("revoked", "reqs_by_serial", storage.HexSerial(serial)+".req")
 		}
-		if key, err := readLifecycleFile(keyPath); err == nil {
+		if key, err := readLifecycleRootFile(root, keyPath); err == nil {
 			record.PrivateKeyPEM = key
 		} else if !errors.Is(err, storage.ErrNotFound) {
 			return nil, err
 		}
-		if request, err := readLifecycleFile(requestPath); err == nil {
+		if request, err := readLifecycleRootFile(root, requestPath); err == nil {
 			record.CSRPEM = request
 		} else if !errors.Is(err, storage.ErrNotFound) {
 			return nil, err
@@ -150,8 +152,8 @@ func (l *LifecycleStorage) exportRevoked() ([]storage.LifecycleRecord, error) {
 	return records, nil
 }
 
-func (l *LifecycleStorage) nameForSerial(serial *big.Int, certificatePEM []byte) (string, error) {
-	if sidecar, err := os.ReadFile(filepath.Join(l.pkiDir, "certs_by_serial", storage.HexSerial(serial)+".name")); err == nil {
+func lifecycleNameForSerial(root *os.Root, serial *big.Int, certificatePEM []byte) (string, error) {
+	if sidecar, err := root.ReadFile(filepath.Join("certs_by_serial", storage.HexSerial(serial)+".name")); err == nil {
 		if name := strings.TrimSpace(string(sidecar)); name != "" {
 			if err := storage.ValidateEntityName(name); err != nil {
 				return "", err
@@ -173,91 +175,92 @@ func (l *LifecycleStorage) ReplaceState(state storage.LifecycleState) error {
 	if err := validateLifecycleState(state); err != nil {
 		return err
 	}
-	for _, relative := range []string{"expired", "renewed", "revoked"} {
-		if err := os.RemoveAll(filepath.Join(l.pkiDir, relative)); err != nil {
-			return err
-		}
-	}
-	for _, record := range state.Expired {
-		if err := l.writeLifecycleRecord(filepath.Join("expired", record.Name+".crt"), record, false); err != nil {
-			return err
-		}
-		if err := l.restorePreservedAssets(record); err != nil {
-			return err
-		}
-		if err := l.removeMatchingCurrent(record, false); err != nil {
-			return err
-		}
-	}
-	for _, record := range state.Renewed {
-		if err := l.writeLifecycleRecord(filepath.Join("renewed", "issued", record.Name+".crt"), record, false); err != nil {
-			return err
-		}
-		if err := l.restorePreservedAssets(record); err != nil {
-			return err
-		}
-	}
-	for _, record := range state.Revoked {
-		hexSerial := storage.HexSerial(record.Serial)
-		if err := l.writeLifecycleRecord(filepath.Join("revoked", "certs_by_serial", hexSerial+".crt"), record, true); err != nil {
-			return err
-		}
-		if !record.AssetsArchived {
-			if err := l.restorePreservedAssets(record); err != nil {
+	return l.withRoot(func(root *os.Root) error {
+		for _, relative := range []string{"expired", "renewed", "revoked"} {
+			if err := root.RemoveAll(relative); err != nil {
 				return err
 			}
 		}
-		if err := l.removeMatchingCurrent(record, record.AssetsArchived); err != nil {
-			return err
+		for _, record := range state.Expired {
+			if err := writeLifecycleStateRecord(root, filepath.Join("expired", record.Name+".crt"), record, false); err != nil {
+				return err
+			}
+			if err := restoreLifecycleAssets(root, record); err != nil {
+				return err
+			}
+			if err := removeMatchingCurrentLifecycle(root, record, false); err != nil {
+				return err
+			}
 		}
-	}
-	return nil
+		for _, record := range state.Renewed {
+			if err := writeLifecycleStateRecord(root, filepath.Join("renewed", "issued", record.Name+".crt"), record, false); err != nil {
+				return err
+			}
+			if err := restoreLifecycleAssets(root, record); err != nil {
+				return err
+			}
+		}
+		for _, record := range state.Revoked {
+			if err := writeLifecycleStateRecord(root, filepath.Join("revoked", "certs_by_serial", storage.HexSerial(record.Serial)+".crt"), record, true); err != nil {
+				return err
+			}
+			if !record.AssetsArchived {
+				if err := restoreLifecycleAssets(root, record); err != nil {
+					return err
+				}
+			}
+			if err := removeMatchingCurrentLifecycle(root, record, record.AssetsArchived); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
-func (l *LifecycleStorage) writeLifecycleRecord(certificatePath string, record storage.LifecycleRecord, revoked bool) error {
-	if err := writeAtomicMode(filepath.Join(l.pkiDir, certificatePath), record.CertificatePEM, 0o644); err != nil {
+func writeLifecycleStateRecord(root *os.Root, certificatePath string, record storage.LifecycleRecord, revoked bool) error {
+	if err := writeLifecycleRootFile(root, certificatePath, record.CertificatePEM, 0o644); err != nil {
 		return err
 	}
 	hexSerial := storage.HexSerial(record.Serial)
-	if err := writeAtomicMode(filepath.Join(l.pkiDir, "certs_by_serial", hexSerial+".name"), []byte(record.Name), 0o600); err != nil {
+	if err := writeLifecycleRootFile(root, filepath.Join("certs_by_serial", hexSerial+".name"), []byte(record.Name), 0o600); err != nil {
 		return err
 	}
 	if !revoked || !record.AssetsArchived {
 		return nil
 	}
-	if err := writeAtomicMode(filepath.Join(l.pkiDir, "certs_by_serial", hexSerial+".revoked-assets"), []byte("issued"), 0o600); err != nil {
+	if err := writeLifecycleRootFile(root, filepath.Join("certs_by_serial", hexSerial+".revoked-assets"), []byte("issued"), 0o600); err != nil {
 		return err
 	}
 	if len(record.PrivateKeyPEM) > 0 {
-		if err := writeAtomicMode(filepath.Join(l.pkiDir, "revoked", "private_by_serial", hexSerial+".key"), record.PrivateKeyPEM, 0o600); err != nil {
+		if err := writeLifecycleRootFile(root, filepath.Join("revoked", "private_by_serial", hexSerial+".key"), record.PrivateKeyPEM, 0o600); err != nil {
 			return err
 		}
 	}
 	if len(record.CSRPEM) > 0 {
-		if err := writeAtomicMode(filepath.Join(l.pkiDir, "revoked", "reqs_by_serial", hexSerial+".req"), record.CSRPEM, 0o644); err != nil {
+		if err := writeLifecycleRootFile(root, filepath.Join("revoked", "reqs_by_serial", hexSerial+".req"), record.CSRPEM, 0o644); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (l *LifecycleStorage) restorePreservedAssets(record storage.LifecycleRecord) error {
+func restoreLifecycleAssets(root *os.Root, record storage.LifecycleRecord) error {
 	if len(record.PrivateKeyPEM) > 0 {
-		if err := writeAtomicMode(filepath.Join(l.pkiDir, "private", record.Name+".key"), record.PrivateKeyPEM, 0o600); err != nil {
+		if err := writeLifecycleRootFile(root, filepath.Join("private", record.Name+".key"), record.PrivateKeyPEM, 0o600); err != nil {
 			return err
 		}
 	}
 	if len(record.CSRPEM) > 0 {
-		if err := writeAtomicMode(filepath.Join(l.pkiDir, "reqs", record.Name+".req"), record.CSRPEM, 0o644); err != nil {
+		if err := writeLifecycleRootFile(root, filepath.Join("reqs", record.Name+".req"), record.CSRPEM, 0o644); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (l *LifecycleStorage) removeMatchingCurrent(record storage.LifecycleRecord, removeKeyAndRequest bool) error {
-	currentPath := filepath.Join(l.pkiDir, "issued", record.Name+".crt")
-	currentPEM, err := os.ReadFile(currentPath)
+func removeMatchingCurrentLifecycle(root *os.Root, record storage.LifecycleRecord, removeAssets bool) error {
+	currentPath := filepath.Join("issued", record.Name+".crt")
+	currentPEM, err := root.ReadFile(currentPath)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
@@ -268,28 +271,32 @@ func (l *LifecycleStorage) removeMatchingCurrent(record storage.LifecycleRecord,
 	if err != nil || currentSerial.Cmp(record.Serial) != 0 {
 		return err
 	}
-	if err := removeIfExists(currentPath); err != nil {
+	if err := removeRootIfExists(root, currentPath); err != nil {
 		return err
 	}
-	if removeKeyAndRequest {
-		if err := removeIfExists(filepath.Join(l.pkiDir, "private", record.Name+".key")); err != nil {
+	if removeAssets {
+		if err := removeRootIfExists(root, filepath.Join("private", record.Name+".key")); err != nil {
 			return err
 		}
-		if err := removeIfExists(filepath.Join(l.pkiDir, "reqs", record.Name+".req")); err != nil {
+		if err := removeRootIfExists(root, filepath.Join("reqs", record.Name+".req")); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+func removeRootIfExists(root *os.Root, name string) error {
+	err := root.Remove(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
 func validateLifecycleState(state storage.LifecycleState) error {
 	seenLocations := make(map[string]struct{})
 	seenRevoked := make(map[string]struct{})
-	for location, records := range map[string][]storage.LifecycleRecord{
-		"expired": state.Expired,
-		"renewed": state.Renewed,
-		"revoked": state.Revoked,
-	} {
+	for location, records := range map[string][]storage.LifecycleRecord{"expired": state.Expired, "renewed": state.Renewed, "revoked": state.Revoked} {
 		for _, record := range records {
 			if location != "revoked" && record.AssetsArchived {
 				return fmt.Errorf("storage/fs: archived assets are only valid for revoked certificates")

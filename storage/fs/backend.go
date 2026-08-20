@@ -183,14 +183,17 @@ func (b *Backend) View(fn func(storage.Components) error) (err error) {
 	if err := storage.ValidateOwnership(OwnershipProbe{Dir: rootPath}); err != nil {
 		return err
 	}
-	if empty, emptyErr := (OwnershipProbe{Dir: rootPath}).Empty(); emptyErr != nil {
-		return emptyErr
-	} else if !empty {
-		if _, err := scanTree(rootPath, "", false); err != nil {
-			return err
-		}
+	if _, statErr := os.Stat(rootPath); errors.Is(statErr, os.ErrNotExist) {
+		return fn(storage.ReadOnlyComponents(newComponents(rootPath, b.caName)))
+	} else if statErr != nil {
+		return statErr
 	}
-	return fn(storage.ReadOnlyComponents(newComponents(rootPath, b.caName)))
+	shadow, err := newShadow(rootPath, true)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, os.RemoveAll(shadow.path)) }()
+	return fn(storage.ReadOnlyComponents(newComponents(shadow.path, b.caName)))
 }
 
 func (b *Backend) Update(fn func(storage.Components) error) (err error) {
