@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented on the feature branch. Full local verification passed; PR and GitHub CI review remain.
+Implemented on the feature branch. Full local verification and PR CI passed; merge remains a user decision.
 
 ## Background
 
