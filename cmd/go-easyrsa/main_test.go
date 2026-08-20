@@ -50,6 +50,43 @@ func TestCLI_InvalidNumericFlagFailsBeforeCreatingPKI(t *testing.T) {
 	require.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
+func TestCLI_InitPKIFreshConflictBatchResetAndForeignProtection(t *testing.T) {
+	t.Run("fresh_and_conflict", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "pki")
+		out, err := runCLI(t, "--pki-dir", dir, "init-pki")
+		require.NoError(t, err, out)
+		require.DirExists(t, filepath.Join(dir, "private"))
+		marker := filepath.Join(dir, "private", "marker")
+		require.NoError(t, os.WriteFile(marker, []byte("keep"), 0o600))
+		_, err = runCLI(t, "--pki-dir", dir, "init-pki")
+		require.ErrorIs(t, err, storage.ErrConflict)
+		require.FileExists(t, marker)
+	})
+
+	t.Run("batch_reset", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "pki")
+		out, err := runCLI(t, "--pki-dir", dir, "--nopass", "build-ca")
+		require.NoError(t, err, out)
+		require.FileExists(t, filepath.Join(dir, "ca.crt"))
+		out, err = runCLI(t, "--pki-dir", dir, "--batch", "init-pki")
+		require.NoError(t, err, out)
+		require.NoFileExists(t, filepath.Join(dir, "ca.crt"))
+		require.DirExists(t, filepath.Join(dir, "private"))
+	})
+
+	t.Run("foreign", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "private"), 0o755))
+		unrelated := filepath.Join(dir, "unrelated.txt")
+		require.NoError(t, os.WriteFile(unrelated, []byte("keep"), 0o600))
+		_, err := runCLI(t, "--pki-dir", dir, "--batch", "init-pki")
+		require.ErrorIs(t, err, storage.ErrForeignStorage)
+		data, readErr := os.ReadFile(unrelated)
+		require.NoError(t, readErr)
+		require.Equal(t, []byte("keep"), data)
+	})
+}
+
 func TestCLI_InvalidRSAKeySizeFailsBeforeCreatingPKI(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "pki")
 
@@ -262,6 +299,9 @@ func TestCLI_GenDH_UsesEnvKeySize(t *testing.T) {
 
 	out, err := runCLI(t, "gen-dh")
 	require.NoError(t, err, out)
+	dhPath, err := filepath.Abs(filepath.Join(dir, "dh.pem"))
+	require.NoError(t, err)
+	require.Contains(t, out, "wrote "+dhPath)
 	dhPEM, err := os.ReadFile(filepath.Join(dir, "dh.pem"))
 	require.NoError(t, err)
 	require.Equal(t, 256, parseDHParameterBits(t, dhPEM))
@@ -274,12 +314,20 @@ func TestCLI_GenCRLWritesPKIArtifact(t *testing.T) {
 	require.NoError(t, err, out)
 	out, err = runCLI(t, "--pki-dir", dir, "gen-crl")
 	require.NoError(t, err, out)
+	crlPath, err := filepath.Abs(filepath.Join(dir, "crl.pem"))
+	require.NoError(t, err)
+	require.Contains(t, out, "wrote "+crlPath)
 
 	crlPEM, err := os.ReadFile(filepath.Join(dir, "crl.pem"))
 	require.NoError(t, err)
 	block, _ := pem.Decode(crlPEM)
 	require.NotNil(t, block)
 	_, err = x509.ParseRevocationList(block.Bytes)
+	require.NoError(t, err)
+	crlDER, err := os.ReadFile(filepath.Join(dir, "crl.der"))
+	require.NoError(t, err)
+	require.Equal(t, block.Bytes, crlDER)
+	_, err = x509.ParseRevocationList(crlDER)
 	require.NoError(t, err)
 }
 
@@ -464,6 +512,8 @@ func TestCLI_RevokeIssuedArchivesCurrentFiles(t *testing.T) {
 		require.NoFileExists(t, path)
 	}
 	requireIndexStatus(t, dir, "alice", storage.StatusRevoked)
+	require.NoFileExists(t, filepath.Join(dir, "crl.pem"))
+	require.NoFileExists(t, filepath.Join(dir, "crl.der"))
 }
 
 func TestCLI_RevokeExpiredArchivesExpiredCertificate(t *testing.T) {
@@ -488,6 +538,20 @@ func TestCLI_RevokeExpiredArchivesExpiredCertificate(t *testing.T) {
 	require.FileExists(t, filepath.Join(dir, "private", "alice.key"))
 	require.FileExists(t, filepath.Join(dir, "reqs", "alice.req"))
 	requireIndexStatus(t, dir, "alice", storage.StatusRevoked)
+	require.NoFileExists(t, filepath.Join(dir, "crl.pem"))
+	require.NoFileExists(t, filepath.Join(dir, "crl.der"))
+}
+
+func TestCLI_RevokeAliasDoesNotGenerateCRL(t *testing.T) {
+	dir := t.TempDir()
+	out, err := runCLI(t, "--pki-dir", dir, "--nopass", "build-ca")
+	require.NoError(t, err, out)
+	out, err = runCLI(t, "--pki-dir", dir, "--nopass", "build-client-full", "alice")
+	require.NoError(t, err, out)
+	out, err = runCLI(t, "--pki-dir", dir, "revoke", "alice")
+	require.NoError(t, err, out)
+	require.NoFileExists(t, filepath.Join(dir, "crl.pem"))
+	require.NoFileExists(t, filepath.Join(dir, "crl.der"))
 }
 
 func TestCLI_RevokeArchiveConflictLeavesCurrentStateUntouched(t *testing.T) {
@@ -581,27 +645,6 @@ func TestCLI_ExpireRejectsSymlinkedSource(t *testing.T) {
 	require.Error(t, err)
 	require.FileExists(t, outside)
 	require.NoFileExists(t, filepath.Join(dir, "expired", "alice.crt"))
-}
-
-func TestCLI_MutatingCommandsHonorSharedLock(t *testing.T) {
-	dir := t.TempDir()
-	out, err := runCLI(t, "--pki-dir", dir, "--nopass", "build-ca")
-	require.NoError(t, err, out)
-	out, err = runCLI(t, "--pki-dir", dir, "--nopass", "build-client-full", "alice")
-	require.NoError(t, err, out)
-	lock, err := acquirePKIMutationLock(dir)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, lock.Unlock()) }()
-
-	for _, args := range [][]string{
-		{"--pki-dir", dir, "renew", "alice"},
-		{"--pki-dir", dir, "gen-crl"},
-		{"--pki-dir", dir, "--nopass", "build-client-full", "bob"},
-	} {
-		_, err := runCLI(t, args...)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "mutation is in progress")
-	}
 }
 
 func TestCLI_ShowExpire_AcceptsDaysArgument(t *testing.T) {

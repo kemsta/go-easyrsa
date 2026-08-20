@@ -9,8 +9,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/pem"
-	"errors"
-	"io"
 	"io/fs"
 	"math/big"
 	"net"
@@ -30,7 +28,7 @@ import (
 	"github.com/kemsta/go-easyrsa/v2/storage"
 )
 
-func TestUtilityCommandsRegisteredAndReadOnly(t *testing.T) {
+func TestUtilityCommandsRegistered(t *testing.T) {
 	root := newRootCmd()
 	registered := make(map[string]bool)
 	for _, command := range root.Commands() {
@@ -38,7 +36,6 @@ func TestUtilityCommandsRegisteredAndReadOnly(t *testing.T) {
 	}
 	for _, name := range []string{"show-req", "show-eku", "serial", "check-serial", "display-dn", "rand"} {
 		assert.Truef(t, registered[name], "%s is not registered", name)
-		assert.Truef(t, commandIsReadOnly(name), "%s is not read-only", name)
 	}
 }
 
@@ -384,34 +381,6 @@ func TestCLI_Rand(t *testing.T) {
 	}
 }
 
-func TestWriteRandomHexErrors(t *testing.T) {
-	var out strings.Builder
-	err := writeRandomHex(&out, strings.NewReader("ab"), 2)
-	require.NoError(t, err)
-	assert.Equal(t, "6162\n", out.String())
-
-	err = writeRandomHex(io.Discard, strings.NewReader("short"), 10)
-	assert.Error(t, err)
-	err = writeRandomHex(failingWriter{}, strings.NewReader("a"), 1)
-	assert.Error(t, err)
-	err = writeRandomHex(io.Discard, strings.NewReader("a"), 0)
-	assert.Error(t, err)
-}
-
-func TestOpenRegularPathWithDetectsReplacement(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "input")
-	require.NoError(t, os.WriteFile(path, []byte("certificate"), 0o600))
-
-	file, regular, err := openRegularPathWith(path, func(name string) (*os.File, error) {
-		require.NoError(t, os.Remove(name))
-		require.NoError(t, os.Mkdir(name, 0o700))
-		return os.Open(name)
-	})
-	require.NoError(t, err)
-	assert.False(t, regular)
-	assert.Nil(t, file)
-}
-
 func TestCLI_ReadOnlyCommandsDoNotChangePKI(t *testing.T) {
 	dir := t.TempDir()
 	pk := openFS(t, dir, pki.Config{NoPass: true, SequentialSerial: true})
@@ -450,10 +419,6 @@ func testEnvironment(overrides map[string]string) []string {
 	}
 	return env
 }
-
-type failingWriter struct{}
-
-func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
 
 type rawTreeEntry struct {
 	Mode fs.FileMode

@@ -3,7 +3,6 @@ module github.com/kemsta/go-easyrsa/cmd/go-easyrsa
 go 1.25.13
 
 require (
-	github.com/gofrs/flock v0.13.0
 	github.com/kemsta/go-easyrsa/v2 v2.2.1-0.20260820105928-1474b9ddf8d1
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.0
@@ -12,6 +11,7 @@ require (
 )
 
 require (
+	github.com/gofrs/flock v0.13.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
